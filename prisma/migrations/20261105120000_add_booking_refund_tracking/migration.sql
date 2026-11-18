@@ -1,0 +1,3 @@
+ALTER TABLE "bookings"
+ADD COLUMN "refundAmount" DECIMAL(12, 2) NOT NULL DEFAULT 0,
+ADD COLUMN "cancellationFeeAmount" DECIMAL(12, 2) NOT NULL DEFAULT 0;

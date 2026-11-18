@@ -1,0 +1,43 @@
+name: Booking and Search Checks
+
+on:
+  push:
+    branches:
+      - redesign/property-detail-page
+  pull_request:
+    branches:
+      - redesign/property-detail-page
+
+jobs:
+  verify:
+    name: Prisma, TypeScript, and production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ethiopianbooking?schema=public
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder-key
+      CHAPA_SECRET_KEY: ci-placeholder-secret
+      CHAPA_WEBHOOK_SECRET: ci-placeholder-webhook-secret
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Check TypeScript
+        run: npx tsc --noEmit
+
+      - name: Build production application
+        run: npm run build

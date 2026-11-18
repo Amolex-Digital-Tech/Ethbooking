@@ -1,0 +1,787 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Profile {
+  id             String          @id @default(uuid()) @db.Uuid
+  authUserId     String          @unique @db.Uuid
+  firstName      String?
+  lastName       String?
+  phone          String?
+  avatarUrl      String?
+  countryCode    String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @default(now()) @updatedAt
+  partnerMembers PartnerMember[]
+  userRoles      UserRole[]
+  branchMemberships BranchMember[]
+  auditLogs        AuditLog[]
+  supportCasesCreated SupportCase[] @relation("SupportCaseCreatedBy")
+  supportCasesAssigned SupportCase[] @relation("SupportCaseAssignedTo")
+  supportCaseNotes SupportCaseNote[]
+
+  @@index([phone])
+  @@map("profiles")
+}
+
+model Role {
+  id          String       @id @default(uuid()) @db.Uuid
+  name        UserRoleType @unique
+  description String?
+  createdAt   DateTime     @default(now())
+  userRoles   UserRole[]
+
+  @@map("roles")
+}
+
+model UserRole {
+  id        String   @id @default(uuid()) @db.Uuid
+  profileId String   @db.Uuid
+  roleId    String   @db.Uuid
+  createdAt DateTime @default(now())
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, roleId])
+  @@index([profileId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model Partner {
+  id           String          @id @default(uuid()) @db.Uuid
+  businessName String
+  legalName    String?
+  email        String?
+  phone        String?
+  status       PartnerStatus   @default(PENDING)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  members      PartnerMember[]
+  properties   Property[]
+
+  @@index([status])
+  @@index([businessName])
+  @@map("partners")
+}
+
+model PartnerMember {
+  id        String              @id @default(uuid()) @db.Uuid
+  partnerId String              @db.Uuid
+  profileId String              @db.Uuid
+  status    PartnerMemberStatus @default(INVITED)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  partner   Partner             @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  profile   Profile             @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([partnerId, profileId])
+  @@index([partnerId])
+  @@index([profileId])
+  @@map("partner_members")
+}
+
+model Location {
+  id           String     @id @default(uuid()) @db.Uuid
+  country      String     @default("Ethiopia")
+  region       String?
+  city         String
+  subCity      String?
+  neighborhood String?
+  address      String?
+  postalCode   String?
+  latitude     Decimal?   @db.Decimal(10, 7)
+  longitude    Decimal?   @db.Decimal(10, 7)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  properties   Property[]
+
+  @@index([city])
+  @@index([region])
+  @@index([latitude, longitude])
+  @@map("locations")
+}
+
+model Property {
+  id                 String             @id @default(uuid()) @db.Uuid
+  partnerId          String             @db.Uuid
+  locationId         String             @db.Uuid
+  name               String
+  slug               String             @unique
+  description        String?
+  propertyType       PropertyType
+  status             PropertyStatus     @default(DRAFT)
+  verificationStatus VerificationStatus @default(NOT_SUBMITTED)
+  email              String?
+  phone              String?
+  website            String?
+  checkInTime        String?
+  checkOutTime       String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  rejectionReason    String?
+  location           Location           @relation(fields: [locationId], references: [id])
+  partner            Partner            @relation(fields: [partnerId], references: [id])
+  documents          PropertyDocument[]
+  photos             PropertyPhoto[]
+  roomTypes          RoomType[]
+
+  @@index([partnerId])
+  @@index([locationId])
+  @@index([status])
+  @@index([verificationStatus])
+  @@index([propertyType])
+  @@map("properties")
+}
+
+model PropertyPhoto {
+  id          String   @id @default(uuid()) @db.Uuid
+  propertyId  String   @db.Uuid
+  storagePath String
+  publicUrl   String?
+  altText     String?
+  sortOrder   Int      @default(0)
+  isCover     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@index([propertyId, sortOrder])
+  @@map("property_photos")
+}
+
+model PropertyDocument {
+  id                 String               @id @default(uuid()) @db.Uuid
+  propertyId         String               @db.Uuid
+  documentType       PropertyDocumentType
+  storagePath        String
+  documentName       String?
+  verificationStatus VerificationStatus   @default(PENDING)
+  rejectionReason    String?
+  verifiedAt         DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  property           Property             @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@index([verificationStatus])
+  @@map("property_documents")
+}
+
+model RoomType {
+  id                 String          @id @default(uuid()) @db.Uuid
+  propertyId         String          @db.Uuid
+  name               String
+  description        String?
+  maxGuests          Int
+  maxAdults          Int?
+  maxChildren        Int?
+  bedType            BedType
+  bedCount           Int             @default(1)
+  sizeSquareMeters   Decimal?        @db.Decimal(8, 2)
+  totalUnits         Int
+  isActive           Boolean         @default(true)
+  hasWifi            Boolean?
+  hasAirConditioning Boolean?
+  hasTv              Boolean?
+  hasPrivateBathroom Boolean?
+  smokingPolicy      SmokingPolicy?
+  extraBedAvailable  Boolean?
+  extraBedPrice      Decimal?        @db.Decimal(12, 2)
+  childPolicy        String?
+  checkInTime        String?
+  checkOutTime       String?
+  additionalRules    String?
+  otherAmenities     String?
+  documents          RoomDocument[]
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  bookingItems       BookingItem[]
+  ratePlans          RatePlan[]
+  inventory          RoomInventory[]
+  photos             RoomPhoto[]
+  property           Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@index([propertyId, isActive])
+  @@map("room_types")
+}
+
+model RoomPhoto {
+  id          String   @id @default(uuid()) @db.Uuid
+  roomTypeId  String   @db.Uuid
+  storagePath String
+  publicUrl   String?
+  altText     String?
+  sortOrder   Int      @default(0)
+  isCover     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  roomType    RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+
+  @@index([roomTypeId])
+  @@index([roomTypeId, sortOrder])
+  @@map("room_photos")
+}
+
+model RoomDocument {
+  id                 String             @id @default(uuid()) @db.Uuid
+  roomTypeId         String             @db.Uuid
+  documentType       RoomDocumentType
+  storagePath        String
+  documentName       String?
+  verificationStatus VerificationStatus @default(PENDING)
+  rejectionReason    String?
+  verifiedAt         DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+
+  @@index([roomTypeId])
+  @@index([verificationStatus])
+  @@map("room_documents")
+}
+
+model RatePlan {
+  id                        String                 @id @default(uuid()) @db.Uuid
+  roomTypeId                String                 @db.Uuid
+  name                      String
+  description               String?
+  mealPlan                  MealPlan               @default(ROOM_ONLY)
+  cancellationPolicy        CancellationPolicyType
+  cancellationDeadlineHours Int?
+  cancellationFeePercent    Decimal?               @db.Decimal(5, 2)
+  basePrice                 Decimal                @db.Decimal(12, 2)
+  currency                  String                 @default("ETB")
+  isActive                  Boolean                @default(true)
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
+  bookingItems              BookingItem[]
+  roomType                  RoomType               @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  ratePeriods               RatePeriod[]
+
+  @@index([roomTypeId])
+  @@index([roomTypeId, isActive])
+  @@map("rate_plans")
+}
+
+model RatePeriod {
+  id            String   @id @default(uuid()) @db.Uuid
+  ratePlanId    String   @db.Uuid
+  startDate     DateTime @db.Date
+  endDate       DateTime @db.Date
+  pricePerNight Decimal  @db.Decimal(12, 2)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  ratePlan RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+
+  @@index([ratePlanId, startDate, endDate])
+  @@map("rate_periods")
+}
+
+model RoomInventory {
+  id            String   @id @default(uuid()) @db.Uuid
+  roomTypeId    String   @db.Uuid
+  date          DateTime @db.Date
+  totalUnits    Int
+  reservedUnits Int      @default(0)
+  blockedUnits  Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  roomType      RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([roomTypeId, date])
+  @@index([roomTypeId, date])
+  @@map("room_inventory")
+}
+
+model Booking {
+  id                  String               @id @default(uuid()) @db.Uuid
+  bookingReference    String               @unique
+  customerProfileId   String?              @db.Uuid
+  status              BookingStatus        @default(PENDING)
+  paymentStatus       PaymentStatus        @default(UNPAID)
+  checkInDate         DateTime             @db.Date
+  checkOutDate        DateTime             @db.Date
+  nights              Int
+  guestCount          Int
+  currency            String               @default("ETB")
+  subtotal            Decimal              @db.Decimal(12, 2)
+  discountAmount      Decimal              @default(0) @db.Decimal(12, 2)
+  taxAmount           Decimal              @default(0) @db.Decimal(12, 2)
+  totalAmount         Decimal              @db.Decimal(12, 2)
+  platformCommission  Decimal              @default(0) @db.Decimal(12, 2)
+  paymentFee          Decimal              @default(0) @db.Decimal(12, 2)
+  partnerAmount       Decimal              @default(0) @db.Decimal(12, 2)
+  customerFirstName   String
+  customerLastName    String?
+  customerEmail       String
+  customerPhone       String?
+  customerCountry     String?
+  specialRequests     String?
+  cancellationReason  String?
+  refundAmount          Decimal   @default(0) @db.Decimal(12, 2)
+  cancellationFeeAmount Decimal   @default(0) @db.Decimal(12, 2)
+  cancelledAt         DateTime?
+  expiresAt           DateTime?
+  checkedInAt         DateTime?
+  checkedInByProfileId String?              @db.Uuid
+  checkedOutAt        DateTime?
+  checkedOutByProfileId String?             @db.Uuid
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  offlinePayments     OfflinePayment[]
+  cashRefund          CashRefund?
+  guests              BookingGuest[]
+  items               BookingItem[]
+  paymentTransactions PaymentTransaction[]
+  emailNotifications BookingEmailNotification[]
+  supportCases SupportCase[]
+
+  @@index([customerProfileId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([checkInDate, checkOutDate])
+  @@index([createdAt])
+  @@map("bookings")
+}
+
+model BookingItem {
+  id            String   @id @default(uuid()) @db.Uuid
+  bookingId     String   @db.Uuid
+  roomTypeId    String   @db.Uuid
+  ratePlanId    String   @db.Uuid
+  roomName      String
+  ratePlanName  String
+  checkInDate   DateTime @db.Date
+  checkOutDate  DateTime @db.Date
+  nights        Int
+  quantity      Int      @default(1)
+  guests        Int
+  pricePerNight Decimal  @db.Decimal(12, 2)
+  subtotal      Decimal  @db.Decimal(12, 2)
+  currency      String   @default("ETB")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  ratePlan      RatePlan @relation(fields: [ratePlanId], references: [id])
+  roomType      RoomType @relation(fields: [roomTypeId], references: [id])
+
+  @@index([bookingId])
+  @@index([roomTypeId])
+  @@index([ratePlanId])
+  @@map("booking_items")
+}
+
+model BookingGuest {
+  id          String    @id @default(uuid()) @db.Uuid
+  bookingId   String    @db.Uuid
+  guestType   GuestType @default(ADDITIONAL)
+  firstName   String
+  lastName    String?
+  email       String?
+  phone       String?
+  countryCode String?
+  dateOfBirth DateTime? @db.Date
+  ageAtBooking Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  booking     Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([bookingId, guestType])
+  @@map("booking_guests")
+}
+
+model PaymentTransaction {
+  id                    String                   @id @default(uuid()) @db.Uuid
+  bookingId             String                   @db.Uuid
+  provider              PaymentProvider
+  transactionReference  String                   @unique
+  providerTransactionId String?
+  amount                Decimal                  @db.Decimal(12, 2)
+  currency              String                   @default("ETB")
+  status                PaymentTransactionStatus @default(INITIATED)
+  checkoutUrl           String?
+  paymentMethod         String?
+  verifiedAt            DateTime?
+  failureReason         String?
+  metadata              Json?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  booking               Booking                  @relation(fields: [bookingId], references: [id])
+
+  @@index([bookingId])
+  @@index([bookingId, status])
+  @@index([provider])
+  @@index([status])
+  @@index([createdAt])
+  @@map("payment_transactions")
+}
+
+
+model BookingEmailNotification {
+  id                String   @id @default(uuid()) @db.Uuid
+  bookingId         String   @db.Uuid
+  notificationType  String
+  recipientEmail    String
+  status            String   @default("PROCESSING")
+  providerMessageId String?
+  lastError         String?
+  sentAt            DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  booking           Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@unique([bookingId, notificationType])
+  @@index([status, updatedAt])
+  @@map("booking_email_notifications")
+}
+
+model CashRefund {
+  id                  String   @id @default(uuid()) @db.Uuid
+  bookingId           String   @unique @db.Uuid
+  amount              Decimal  @db.Decimal(12, 2)
+  currency            String   @default("ETB")
+  branchName          String
+  branchAddress       String
+  recipientName       String
+  recipientPhone      String?
+  receiptNumber       String   @unique
+  handedOverAt        DateTime
+  note                String?
+  recordedByProfileId String   @db.Uuid
+  createdAt           DateTime @default(now())
+  booking             Booking  @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  branchId            String?  @db.Uuid
+  branch              Branch?  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@index([branchId])
+  @@index([handedOverAt])
+  @@index([recordedByProfileId])
+  @@map("cash_refunds")
+}
+
+model Branch {
+  id          String        @id @default(uuid()) @db.Uuid
+  name        String
+  code        String        @unique
+  address     String
+  city        String
+  phone       String?
+  email       String?
+  status      BranchStatus  @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  members     BranchMember[]
+  cashRefunds CashRefund[]
+  @@index([city])
+  @@index([status])
+  @@map("branches")
+}
+
+model AuditLog {
+  id              String   @id @default(uuid()) @db.Uuid
+  actorProfileId  String?  @db.Uuid
+  actorRole       String?
+  action          String
+  entityType      String
+  entityId        String?
+  description     String
+  metadata        Json?
+  ipAddress       String?
+  userAgent       String?
+  createdAt       DateTime @default(now())
+  actor           Profile? @relation(fields: [actorProfileId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([actorProfileId, createdAt])
+  @@index([entityType, entityId])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
+
+model BranchMember {
+  id        String             @id @default(uuid()) @db.Uuid
+  branchId  String             @db.Uuid
+  profileId String             @db.Uuid
+  role      BranchMemberRole   @default(STAFF)
+  status    BranchMemberStatus @default(ACTIVE)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  branch    Branch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  profile   Profile            @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  @@unique([profileId])
+  @@index([profileId, status])
+  @@index([branchId, status])
+  @@map("branch_members")
+}
+
+
+model SupportCase {
+  id                 String              @id @default(uuid()) @db.Uuid
+  caseNumber         String              @unique
+  subject            String
+  description        String
+  category           SupportCaseCategory @default(GENERAL)
+  priority           SupportCasePriority  @default(NORMAL)
+  status             SupportCaseStatus    @default(OPEN)
+  customerName       String?
+  customerEmail      String?
+  customerPhone      String?
+  bookingId          String?              @db.Uuid
+  createdByProfileId String               @db.Uuid
+  assignedToProfileId String?             @db.Uuid
+  resolvedAt         DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  booking            Booking?             @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  createdBy          Profile              @relation("SupportCaseCreatedBy", fields: [createdByProfileId], references: [id], onDelete: Restrict)
+  assignedTo         Profile?             @relation("SupportCaseAssignedTo", fields: [assignedToProfileId], references: [id], onDelete: SetNull)
+  notes              SupportCaseNote[]
+
+  @@index([status, updatedAt])
+  @@index([priority, status])
+  @@index([customerEmail])
+  @@index([customerPhone])
+  @@index([bookingId])
+  @@map("support_cases")
+}
+
+model SupportCaseNote {
+  id                String      @id @default(uuid()) @db.Uuid
+  caseId            String      @db.Uuid
+  authorProfileId   String      @db.Uuid
+  body              String
+  createdAt         DateTime    @default(now())
+  supportCase       SupportCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  author            Profile     @relation(fields: [authorProfileId], references: [id], onDelete: Restrict)
+
+  @@index([caseId, createdAt])
+  @@map("support_case_notes")
+}
+
+enum SupportCaseCategory {
+  GENERAL
+  BOOKING
+  PAYMENT
+  CANCELLATION
+  REFUND
+  PROPERTY
+  ACCOUNT
+  COMPLAINT
+}
+
+enum SupportCasePriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum SupportCaseStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_CUSTOMER
+  RESOLVED
+  CLOSED
+}
+
+enum BranchStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum BranchMemberRole {
+  MANAGER
+  STAFF
+}
+
+enum BranchMemberStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+model OfflinePayment {
+  id                 String              @id @default(uuid()) @db.Uuid
+  bookingId          String              @db.Uuid
+  method             OfflinePaymentMethod
+  methodDetails      String?
+  amount             Decimal             @db.Decimal(12, 2)
+  currency           String              @default("ETB")
+  reference          String?
+  note               String?
+  paidAt             DateTime            @default(now())
+  recordedByProfileId String             @db.Uuid
+  createdAt          DateTime            @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([recordedByProfileId])
+  @@index([paidAt])
+  @@map("offline_payments")
+}
+
+enum UserRoleType {
+  CUSTOMER
+  PARTNER_OWNER
+  PARTNER_MANAGER
+  PARTNER_STAFF
+  ADMIN
+  SUPER_ADMIN
+  SUPPORT_AGENT
+  FINANCE
+  CONTENT_MANAGER
+  BRANCH_MANAGER
+  BRANCH_STAFF
+}
+
+enum PartnerStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+enum PartnerMemberStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  REMOVED
+}
+
+enum PropertyType {
+  HOTEL
+  GUESTHOUSE
+  LODGE
+  RESORT
+  APARTMENT
+  HOSTEL
+  VILLA
+  BOUTIQUE_HOTEL
+  BED_AND_BREAKFAST
+  HOMESTAY
+  OTHER
+}
+
+enum PropertyStatus {
+  DRAFT
+  PENDING_REVIEW
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  SUSPENDED
+  ARCHIVED
+}
+
+enum VerificationStatus {
+  NOT_SUBMITTED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum PropertyDocumentType {
+  BUSINESS_LICENSE
+  TOURISM_LICENSE
+  TAX_DOCUMENT
+  OWNER_ID
+  PROPERTY_OWNERSHIP
+  OTHER
+}
+
+enum BedType {
+  SINGLE
+  TWIN
+  DOUBLE
+  QUEEN
+  KING
+  BUNK
+  SOFA_BED
+  MULTIPLE
+  OTHER
+}
+
+enum MealPlan {
+  ROOM_ONLY
+  BREAKFAST
+  HALF_BOARD
+  FULL_BOARD
+  ALL_INCLUSIVE
+}
+
+enum CancellationPolicyType {
+  NON_REFUNDABLE
+  FLEXIBLE
+  MODERATE
+  CUSTOM
+}
+
+enum BookingStatus {
+  PENDING
+  PAYMENT_PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+  EXPIRED
+  REFUND_PENDING
+  REFUNDED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PENDING
+  PARTIALLY_PAID
+  PAID
+  FAILED
+  REFUND_PENDING
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+
+enum OfflinePaymentMethod {
+  CASH
+  BANK_TRANSFER
+  POS_CARD
+  MOBILE_MONEY
+  OTHER
+}
+enum PaymentProvider {
+  CHAPA
+}
+
+enum PaymentTransactionStatus {
+  INITIATED
+  PENDING
+  SUCCESS
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum GuestType {
+  PRIMARY
+  ADDITIONAL
+}
+
+enum RoomDocumentType {
+  ROOM_PHOTO_INVOICE
+  ROOM_OWNERSHIP
+  ROOM_SAFETY_CERTIFICATE
+  OTHER
+}
+
+enum SmokingPolicy {
+  SMOKING_ALLOWED
+  NON_SMOKING
+  DESIGNATED_AREAS
+}

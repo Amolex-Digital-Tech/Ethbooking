@@ -1,0 +1,20 @@
+import Link from "next/link";
+import { requireRole } from "@/lib/auth/require-role";
+import { prisma } from "@/lib/prisma/client";
+import UserRoleControls from "./user-role-controls";
+
+export const dynamic="force-dynamic";
+export default async function AdminUsersPage(){
+ const current=await requireRole("ADMIN","SUPER_ADMIN");
+ const [profiles,totalMembers,branchMembers]=await Promise.all([
+  prisma.profile.findMany({orderBy:{createdAt:"desc"},take:100,include:{userRoles:{include:{role:true}},branchMemberships:{include:{branch:{select:{id:true,name:true,city:true}},},take:1}}}),
+  prisma.branchMember.count(),
+  prisma.branchMember.count({where:{status:"ACTIVE"}}),
+ ]);
+ const canManagePlatformRoles=current.roles.includes("SUPER_ADMIN");
+ return <main className="mx-auto max-w-[1440px] px-4 py-8 sm:px-7 lg:px-9"><div className="mb-8"><p className="text-xs font-bold tracking-[.18em] text-[#72836F]">ADMINISTRATION</p><h1 className="mt-2 text-3xl font-semibold text-[#20372B]">Users & permissions</h1><p className="mt-2 text-sm text-[#737B70]">Review platform identities, role assignments and branch access.</p></div>
+ <div className="mb-6 grid gap-4 sm:grid-cols-3"><div className="rounded-2xl border border-[#E4E8DF] bg-white p-5"><p className="text-xs text-[#778174]">Profiles listed</p><p className="mt-2 text-3xl font-semibold text-[#263B2D]">{profiles.length}</p><p className="mt-1 text-xs text-[#899186]">Most recently created · max 100</p></div><div className="rounded-2xl border border-[#E4E8DF] bg-white p-5"><p className="text-xs text-[#778174]">Branch memberships</p><p className="mt-2 text-3xl font-semibold text-[#263B2D]">{totalMembers}</p></div><div className="rounded-2xl border border-[#E4E8DF] bg-white p-5"><p className="text-xs text-[#778174]">Active branch access</p><p className="mt-2 text-3xl font-semibold text-[#263B2D]">{branchMembers}</p></div></div>
+ <section className="overflow-hidden rounded-2xl border border-[#E4E8DF] bg-white"><div className="border-b border-[#EDF0EA] px-5 py-4"><h2 className="text-sm font-semibold text-[#293D30]">User directory</h2><p className="mt-1 text-xs text-[#899186]">Email addresses are intentionally not fetched from the authentication service in this directory view.</p></div><div className="divide-y divide-[#EFF1EC]">{profiles.map(profile=>{const membership=profile.branchMemberships[0];return <article key={profile.id} className="flex flex-col justify-between gap-3 px-5 py-4 md:flex-row md:items-center"><div><p className="text-sm font-semibold text-[#293D30]">{[profile.firstName,profile.lastName].filter(Boolean).join(" ")||"Unnamed user"}</p><p className="mt-1 text-xs text-[#899186]">{profile.phone||"No phone number"} · Joined {new Intl.DateTimeFormat("en-GB",{dateStyle:"medium"}).format(profile.createdAt)}</p><p className="mt-2 text-[11px] text-[#6E7B6D]">Profile ID: {profile.id}</p></div><div className="flex flex-wrap items-center gap-2">{profile.userRoles.map(r=><span key={r.id} className="rounded-lg bg-[#F0F4EC] px-2.5 py-1.5 text-[11px] font-semibold text-[#496248]">{r.role.name.replaceAll("_"," ")}</span>)}{membership&&<span className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ${membership.status==="ACTIVE"?"bg-emerald-50 text-emerald-800":"bg-rose-50 text-rose-700"}`}>{membership.branch.name} · {membership.role} · {membership.status}</span>}{!canManagePlatformRoles&&<span className="text-[10px] text-[#899186]">Role changes restricted</span>}</div>{canManagePlatformRoles&&<UserRoleControls profileId={profile.id} assigned={profile.userRoles.map(r=>r.role.name)} />}</article>})}</div></section>
+ <div className="mt-5 rounded-2xl border border-[#E4E8DF] bg-white p-5"><h2 className="text-sm font-semibold text-[#293D30]">Branch employee administration</h2><p className="mt-1 text-xs text-[#7D877A]">Invite staff, assign a single branch, and suspend or reactivate branch access from the branch directory.</p><Link href="/admin/branches" className="mt-3 inline-flex text-sm font-semibold text-[#58734F] hover:underline">Manage branches and employees →</Link></div>
+ </main>;
+}

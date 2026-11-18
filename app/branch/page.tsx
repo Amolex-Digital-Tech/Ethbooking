@@ -1,0 +1,13 @@
+import { redirect } from "next/navigation";
+import Link from "next/link";
+import { AuthError } from "@/lib/auth/auth-error";
+import { requireBranchMembership } from "@/lib/auth/require-branch-membership";
+import BranchRefundQueue from "./branch-refund-queue";
+export const dynamic = "force-dynamic";
+export default async function BranchWorkspacePage() {
+  let currentUser: Awaited<ReturnType<typeof requireBranchMembership>>;
+  try { currentUser = await requireBranchMembership("MANAGER", "STAFF"); }
+  catch (error) { if (error instanceof AuthError && error.status === 401) redirect("/staff/login?role=BRANCH_STAFF"); if (error instanceof AuthError && error.status === 403) redirect("/"); throw error; }
+  const membership = currentUser.branchMembership;
+  return <main className="min-h-screen bg-[#F5F6F2] px-4 py-8 text-[#263B2D] sm:px-7"><div className="mx-auto max-w-5xl space-y-6"><header className="rounded-2xl border border-[#E7E5DF] bg-white p-6"><p className="text-xs font-bold tracking-[0.18em] text-[#87917F]">ETHIOPIANBOOKING · BRANCH WORKSPACE</p><h1 className="mt-2 text-2xl font-semibold">{membership.branch.name}</h1><p className="mt-1 text-sm text-[#77766F]">{membership.branch.address} · {membership.branch.city}</p><p className="mt-3 inline-flex rounded-full bg-[#EDF2E8] px-3 py-1.5 text-xs font-semibold">{membership.role === "MANAGER" ? "Branch Manager" : "Branch Staff"}</p></header><section className="grid gap-3 sm:grid-cols-2"><Link href="/branch/bookings" className="rounded-2xl border border-[#E7E5DF] bg-white p-5 transition hover:border-[#B8C7B0] hover:shadow-sm"><p className="text-xs font-bold tracking-wide text-[#87917F]">CUSTOMER & BOOKING OPERATIONS</p><h2 className="mt-2 text-lg font-semibold">All bookings</h2><p className="mt-1 text-sm text-[#77766F]">Search platform-wide bookings, find customer reservations and review booking status.</p><span className="mt-4 inline-block text-sm font-semibold text-[#496447]">Open booking directory →</span></Link><div className="rounded-2xl border border-[#E7E5DF] bg-white p-5"><p className="text-xs font-bold tracking-wide text-[#87917F]">REFUND OPERATIONS</p><h2 className="mt-2 text-lg font-semibold">Cash refund queue</h2><p className="mt-1 text-sm text-[#77766F]">Review approved cash refunds. Only a Branch Manager can record the completed physical handover.</p></div></section><BranchRefundQueue/><p className="text-xs leading-5 text-[#89877F]">Access is restricted to your assigned active branch membership. Cash refunds are recorded only after the full cash amount is physically handed over. Every record stores the branch and employee who recorded it.</p></div></main>;
+}
