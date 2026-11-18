@@ -7,11 +7,12 @@
     "dev": "next dev",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "prisma skills sync || exit 0",
+    "postinstall": "prisma generate --config prisma7.config.ts",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
-    "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts"
+    "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
+    "prebuild": "prisma generate --config prisma7.config.ts"
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.20.17",
