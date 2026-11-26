@@ -50,4 +50,6 @@ jobs:
         run: npm run build
 
       - name: Build Cloudflare OpenNext Worker
+        env:
+          PRISMA_CLIENT_RUNTIME: cloudflare
         run: npx opennextjs-cloudflare build

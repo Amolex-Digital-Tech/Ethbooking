@@ -64,3 +64,4 @@ executed
 !.dev.vars.example
 
 !.env.example
+prisma/.schema.*.prisma
