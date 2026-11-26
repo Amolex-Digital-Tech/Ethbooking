@@ -338,7 +338,7 @@ model Booking {
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   offlinePayments     OfflinePayment[]
-  cashRefund          CashRefund?
+  cashRefunds         CashRefund[]
   guests              BookingGuest[]
   items               BookingItem[]
   paymentTransactions PaymentTransaction[]
@@ -368,6 +368,12 @@ model BookingItem {
   pricePerNight Decimal  @db.Decimal(12, 2)
   subtotal      Decimal  @db.Decimal(12, 2)
   currency      String   @default("ETB")
+  // Cancellation terms and check-in time as they were when the booking was
+  // made. Refunds use these, so later rate-plan edits don't change them.
+  cancellationPolicy        CancellationPolicyType?
+  cancellationDeadlineHours Int?
+  cancellationFeePercent    Decimal?                @db.Decimal(5, 2)
+  checkInTime               String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
@@ -447,7 +453,7 @@ model BookingEmailNotification {
 
 model CashRefund {
   id                  String   @id @default(uuid()) @db.Uuid
-  bookingId           String   @unique @db.Uuid
+  bookingId           String   @db.Uuid
   amount              Decimal  @db.Decimal(12, 2)
   currency            String   @default("ETB")
   branchName          String
@@ -463,6 +469,7 @@ model CashRefund {
   branchId            String?  @db.Uuid
   branch              Branch?  @relation(fields: [branchId], references: [id], onDelete: Restrict)
 
+  @@index([bookingId])
   @@index([branchId])
   @@index([handedOverAt])
   @@index([recordedByProfileId])

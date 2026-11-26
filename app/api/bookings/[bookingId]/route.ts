@@ -5,7 +5,11 @@ import { AuthError } from "@/lib/auth/auth-error";
 import { prisma } from "@/lib/prisma/client";
 import { releaseRoomInventory } from "@/lib/availability/release-room-inventory";
 import { expireBooking } from "@/lib/bookings/expire-booking";
-import { calculateCancellationAmounts } from "@/lib/bookings/cancellation-amounts";
+import {
+  calculateCancellationAmounts,
+  calculateSharesAfterRefund,
+  cancellationTermsForItem,
+} from "@/lib/bookings/cancellation-amounts";
 
 type RouteContext = {
   params: Promise<{
@@ -95,6 +99,9 @@ export async function GET(
             pricePerNight: true,
             subtotal: true,
             currency: true,
+            cancellationPolicy: true,
+            cancellationDeadlineHours: true,
+            cancellationFeePercent: true,
             ratePlan: {
               select: {
                 cancellationPolicy: true,
@@ -133,9 +140,20 @@ export async function GET(
       );
     }
 
+    // Show the cancellation terms the booking was made under, not the rate
+    // plan's current terms.
+    const { items, ...bookingFields } = booking;
     return Response.json({
       success: true,
-      data: booking,
+      data: {
+        ...bookingFields,
+        items: items.map(({ cancellationPolicy, cancellationDeadlineHours, cancellationFeePercent, ratePlan, ...item }) => ({
+          ...item,
+          ratePlan: cancellationPolicy === null
+            ? ratePlan
+            : { cancellationPolicy, cancellationDeadlineHours, cancellationFeePercent },
+        })),
+      },
     });
   } catch (error) {
     if (error instanceof AuthError) {
@@ -223,11 +241,21 @@ export async function PATCH(
               quantity: true,
               subtotal: true,
               checkInDate: true,
+              cancellationPolicy: true,
+              cancellationDeadlineHours: true,
+              cancellationFeePercent: true,
+              checkInTime: true,
               ratePlan: {
                 select: {
                   cancellationPolicy: true,
                   cancellationDeadlineHours: true,
                   cancellationFeePercent: true,
+                },
+              },
+              roomType: {
+                select: {
+                  checkInTime: true,
+                  property: { select: { checkInTime: true } },
                 },
               },
             },
@@ -260,11 +288,37 @@ export async function PATCH(
       const now = new Date();
 
       const amounts = isPaidConfirmed
-        ? calculateCancellationAmounts(booking, now)
+        ? calculateCancellationAmounts(
+            {
+              subtotal: booking.subtotal,
+              totalAmount: booking.totalAmount,
+              items: booking.items.map((item) => ({
+                subtotal: item.subtotal,
+                checkInDate: item.checkInDate,
+                terms: cancellationTermsForItem(item),
+              })),
+            },
+            now
+          )
         : {
             refundAmount: "0.00",
             cancellationFeeAmount: "0.00",
           };
+
+      // A paid booking's platform and hotel shares are reduced to what is
+      // kept after the refund.
+      const shares = isPaidConfirmed
+        ? calculateSharesAfterRefund({
+            totalAmount: booking.totalAmount,
+            platformCommission: booking.platformCommission,
+            paymentFee: booking.paymentFee,
+            refundAmount: amounts.refundAmount,
+          })
+        : null;
+
+      // refundAmount is the total owed over the booking's life, so add to it:
+      // a duplicate payment may already have been refunded.
+      const totalRefundAmount = booking.refundAmount.plus(amounts.refundAmount);
 
       const hasRefund = Number(amounts.refundAmount) > 0;
 
@@ -292,9 +346,10 @@ export async function PATCH(
           paymentStatus: newPaymentStatus,
           cancellationReason,
           cancelledAt: now,
-          refundAmount: amounts.refundAmount,
+          refundAmount: totalRefundAmount,
           cancellationFeeAmount:
             amounts.cancellationFeeAmount,
+          ...(shares ?? {}),
         },
       });
 

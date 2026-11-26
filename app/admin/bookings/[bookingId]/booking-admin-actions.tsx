@@ -45,11 +45,14 @@ export default function BookingAdminActions({
     ["CONFIRMED", "CANCELLED", "EXPIRED"].includes(bookingStatus) &&
     paymentStatus !== "REFUND_PENDING";
 
+  // refundAmount is the amount still due (earlier cash refunds already
+  // subtracted). A confirmed booking can be awaiting the refund of a
+  // duplicate payment.
   const canRecordCashRefund =
-    bookingStatus === "REFUND_PENDING" &&
+    ["REFUND_PENDING", "CONFIRMED"].includes(bookingStatus) &&
     paymentStatus === "REFUND_PENDING" &&
     hasSuccessfulPayment &&
-    !hasCashRefund;
+    Number(refundAmount) > 0;
 
   async function submit(action: "CANCEL_UNPAID" | "FLAG_REFUND_REVIEW") {
     setError("");
@@ -150,7 +153,7 @@ export default function BookingAdminActions({
             <p className="text-sm font-semibold text-amber-900">Cash refund — handover required</p>
             <p className="mt-1 text-sm text-amber-800">Record this only after branch staff have physically handed this amount to the customer. The original Chapa payment will remain recorded as successful.</p>
             <p className="mt-3 text-2xl font-bold text-[#263B2D]">{currency} {Number(refundAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-            <p className="text-xs text-amber-800">Amount due under the booking's refund. This can be less than the amount paid when a cancellation fee applies.</p>
+            <p className="text-xs text-amber-800">Amount still due to the customer. This can be less than the amount paid when a cancellation fee applies or part was already refunded.</p>
           </div>
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <Field label="Branch name" value={branchName} onChange={setBranchName} required placeholder="e.g. Addis Ababa Branch" />
@@ -169,7 +172,7 @@ export default function BookingAdminActions({
         </form>
       )}
 
-      {hasCashRefund && <p className="mt-5 rounded-xl bg-green-50 p-4 text-sm font-medium text-green-800">A cash refund has already been recorded for this booking. The permanent handover record is shown below.</p>}
+      {hasCashRefund && !canRecordCashRefund && <p className="mt-5 rounded-xl bg-green-50 p-4 text-sm font-medium text-green-800">Cash refunds recorded for this booking are shown below.</p>}
       {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       {message && <p role="status" className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-800">{message}</p>}
       {!canCancelUnpaid && !canFlagRefund && !canRecordCashRefund && !hasCashRefund && <p className="mt-4 text-sm text-gray-500">No manual action is available for this booking&apos;s current status.</p>}

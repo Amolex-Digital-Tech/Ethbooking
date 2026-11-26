@@ -4,6 +4,7 @@ import { Prisma } from "@/lib/generated/prisma/client";
 import { BookingStatus, PaymentStatus } from "@/lib/generated/prisma/enums";
 import { prisma } from "@/lib/prisma/client";
 import { reserveRoomInventoryInTransaction } from "@/lib/availability/reserve-room-inventory";
+import { bookedCancellationTerms } from "@/lib/bookings/booked-cancellation-terms";
 
 type BookingRoomSelection = {
   roomTypeId: string;
@@ -137,6 +138,7 @@ export async function createBooking(input: CreateBookingInput): Promise<CreateBo
     const pricedItems: {
       roomType: { id: string; name: string; maxGuests: number; maxAdults: number | null; maxChildren: number | null; property: { id: string; name: string; status: string } };
       ratePlan: { id: string; name: string; currency: string; basePrice: Prisma.Decimal; ratePeriods: { startDate: Date; endDate: Date; pricePerNight: Prisma.Decimal }[] };
+      terms: ReturnType<typeof bookedCancellationTerms>;
       quantity: number;
       subtotal: Prisma.Decimal;
       pricePerNight: Prisma.Decimal;
@@ -153,7 +155,7 @@ export async function createBooking(input: CreateBookingInput): Promise<CreateBo
     for (const selection of selections) {
       const roomType = await transaction.roomType.findUnique({
         where: { id: selection.roomTypeId },
-        include: { property: { select: { id: true, name: true, status: true } } },
+        include: { property: { select: { id: true, name: true, status: true, checkInTime: true } } },
       });
       if (!roomType || !roomType.isActive) throw new Error("One of the selected room types is no longer available.");
       if (roomType.property.status !== "APPROVED") throw new Error("This property is not currently available for booking.");
@@ -186,6 +188,7 @@ export async function createBooking(input: CreateBookingInput): Promise<CreateBo
       pricedItems.push({
         roomType: { id: roomType.id, name: roomType.name, maxGuests: roomType.maxGuests, maxAdults: roomType.maxAdults, maxChildren: roomType.maxChildren, property: roomType.property },
         ratePlan: { id: ratePlan.id, name: ratePlan.name, currency: ratePlan.currency, basePrice: ratePlan.basePrice, ratePeriods: ratePlan.ratePeriods },
+        terms: bookedCancellationTerms(ratePlan, roomType.checkInTime ?? roomType.property.checkInTime),
         quantity: selection.quantity,
         subtotal: roomSubtotal.mul(selection.quantity),
         pricePerNight: roomSubtotal.div(nights).toDecimalPlaces(2),
@@ -240,6 +243,7 @@ export async function createBooking(input: CreateBookingInput): Promise<CreateBo
         roomName: item.roomType.name, ratePlanName: item.ratePlan.name,
         checkInDate: checkIn, checkOutDate: checkOut, nights, quantity: item.quantity,
         guests, pricePerNight: item.pricePerNight, subtotal: item.subtotal, currency: bookingCurrency,
+        ...item.terms,
       })),
     });
 

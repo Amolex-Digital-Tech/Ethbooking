@@ -1,6 +1,7 @@
 import { requireBranchMembership } from "@/lib/auth/require-branch-membership";
 import { handleAuthError } from "@/lib/auth/handle-auth-error";
 import { prisma } from "@/lib/prisma/client";
+import { Prisma } from "@/lib/generated/prisma/client";
 
 const bookingStatuses = [
   "PENDING", "PAYMENT_PENDING", "CONFIRMED", "CANCELLED", "COMPLETED",
@@ -59,7 +60,7 @@ export async function GET(request: Request) {
               roomType: { select: { property: { select: { name: true } } } },
             },
           },
-          cashRefund: { select: { id: true, amount: true, currency: true, handedOverAt: true } },
+          cashRefunds: { select: { id: true, amount: true, currency: true, handedOverAt: true }, orderBy: { handedOverAt: "desc" } },
         },
         orderBy: { createdAt: "desc" },
         take: 100,
@@ -77,12 +78,15 @@ export async function GET(request: Request) {
       },
       total,
       counts: Object.fromEntries(counts.map((item) => [item.status, item._count._all])),
-      bookings: bookings.map((booking) => ({
+      bookings: bookings.map(({ cashRefunds, ...booking }) => ({
         ...booking,
         totalAmount: booking.totalAmount.toString(),
-        cashRefund: booking.cashRefund ? {
-          ...booking.cashRefund,
-          amount: booking.cashRefund.amount.toString(),
+        // Summary of all cash refunds: the latest handover and the total paid.
+        cashRefund: cashRefunds.length > 0 ? {
+          id: cashRefunds[0].id,
+          currency: cashRefunds[0].currency,
+          handedOverAt: cashRefunds[0].handedOverAt,
+          amount: cashRefunds.reduce((sum, cashRefund) => sum.plus(cashRefund.amount), new Prisma.Decimal(0)).toString(),
         } : null,
       })),
     });

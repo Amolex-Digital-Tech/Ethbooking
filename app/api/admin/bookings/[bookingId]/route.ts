@@ -2,7 +2,8 @@ import { requireRole } from "@/lib/auth/require-role";
 import { handleAuthError } from "@/lib/auth/handle-auth-error";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma/client";
-import { resolveCashRefundAmount } from "@/lib/refunds/cash-refund-amount";
+import { isAwaitingCashRefund, resolveCashRefundAmount, statusAfterCashRefund } from "@/lib/refunds/cash-refund-amount";
+import { calculateSharesAfterRefund } from "@/lib/bookings/cancellation-amounts";
 import { releaseRoomInventory } from "@/lib/availability/release-room-inventory";
 import { writeAuditLog } from "@/lib/admin/write-audit-log";
 
@@ -74,7 +75,7 @@ export async function POST(request: Request, { params }: RouteProps) {
     const result = await prisma.$transaction(async (tx) => {
       const booking = await tx.booking.findUnique({
         where: { id: bookingId },
-        include: { items: true, paymentTransactions: true },
+        include: { items: true, paymentTransactions: true, cashRefunds: { select: { amount: true } } },
       });
 
       if (!booking) {
@@ -84,8 +85,8 @@ export async function POST(request: Request, { params }: RouteProps) {
       const hasSuccessfulPayment = successfulPayments.length > 0;
 
       if (action === "RECORD_CASH_REFUND") {
-        if (booking.status !== "REFUND_PENDING" || booking.paymentStatus !== "REFUND_PENDING") {
-          return { error: "Only bookings awaiting refund review can receive a cash refund.", status: 409 };
+        if (!isAwaitingCashRefund(booking.status, booking.paymentStatus)) {
+          return { error: "Only bookings awaiting a refund can receive a cash refund.", status: 409 };
         }
         if (!hasSuccessfulPayment) {
           return { error: "No successful payment exists for this booking.", status: 409 };
@@ -110,9 +111,18 @@ export async function POST(request: Request, { params }: RouteProps) {
         const refund = resolveCashRefundAmount({
           refundAmount: booking.refundAmount,
           successfulPaymentAmounts: successfulPayments.map((payment) => payment.amount),
+          alreadyRefundedAmounts: booking.cashRefunds.map((cashRefund) => cashRefund.amount),
         });
         if (!refund.ok) {
           return { error: refund.error, status: 409 };
+        }
+        // Claim the booking first so two people cannot record the same refund.
+        const updated = await tx.booking.updateMany({
+          where: { id: booking.id, status: booking.status, paymentStatus: booking.paymentStatus },
+          data: statusAfterCashRefund(booking.status),
+        });
+        if (updated.count !== 1) {
+          throw new Error("Booking changed while the cash refund was being recorded. No refund record was saved.");
         }
         const now = new Date();
         await tx.cashRefund.create({
@@ -130,16 +140,9 @@ export async function POST(request: Request, { params }: RouteProps) {
             recordedByProfileId: currentUser.profile.id,
           },
         });
-        const updated = await tx.booking.updateMany({
-          where: { id: booking.id, status: "REFUND_PENDING", paymentStatus: "REFUND_PENDING" },
-          data: { status: "REFUNDED", paymentStatus: "REFUNDED" },
-        });
-        if (updated.count !== 1) {
-          throw new Error("Booking changed while the cash refund was being recorded. No refund record was saved.");
-        }
         return {
           success: true,
-          message: `${refund.isFullRefund ? "Full" : "Partial"} cash refund of ${booking.currency} ${refund.amount.toFixed(2)} recorded. Booking marked as refunded. The original payment transaction remains unchanged.`,
+          message: `Cash refund of ${booking.currency} ${refund.amount.toFixed(2)} recorded. The original payment transaction remains unchanged.`,
           refundAmount: refund.amount.toString(),
         };
       }
@@ -204,6 +207,13 @@ export async function POST(request: Request, { params }: RouteProps) {
           paymentStatus: "REFUND_PENDING",
           refundAmount: successfulAmount,
           cancellationReason: reason,
+          // Everything is refunded, so nothing is kept for the platform or hotel.
+          ...calculateSharesAfterRefund({
+            totalAmount: booking.totalAmount,
+            platformCommission: booking.platformCommission,
+            paymentFee: booking.paymentFee,
+            refundAmount: booking.totalAmount,
+          }),
         },
       });
       if (claimed.count !== 1) {
@@ -225,7 +235,7 @@ export async function POST(request: Request, { params }: RouteProps) {
     return Response.json(result);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      return Response.json({ success: false, error: "A cash refund already exists for this booking, or this receipt number is already in use." }, { status: 409 });
+      return Response.json({ success: false, error: "This receipt number is already in use." }, { status: 409 });
     }
     return handleAuthError(error);
   }

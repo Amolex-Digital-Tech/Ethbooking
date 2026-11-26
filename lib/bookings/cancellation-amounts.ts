@@ -1,6 +1,75 @@
+export type CancellationTerms = {
+  cancellationPolicy: string;
+  cancellationDeadlineHours: number | null;
+  cancellationFeePercent: { toString(): string } | null;
+  // Local check-in time ("HH:MM"), if the room or property sets one.
+  checkInTime: string | null;
+};
+
+type BookingItemTermsSource = {
+  cancellationPolicy: string | null;
+  cancellationDeadlineHours: number | null;
+  cancellationFeePercent: { toString(): string } | null;
+  checkInTime: string | null;
+  ratePlan: {
+    cancellationPolicy: string;
+    cancellationDeadlineHours: number | null;
+    cancellationFeePercent: { toString(): string } | null;
+  };
+  roomType: { checkInTime: string | null; property: { checkInTime: string | null } };
+};
+
+// The terms a booking item was sold under. Items store them when the booking
+// is made; an item without them (should not happen after the backfill
+// migration) falls back to the rate plan's current terms.
+export function cancellationTermsForItem(item: BookingItemTermsSource): CancellationTerms {
+  if (item.cancellationPolicy !== null) {
+    return {
+      cancellationPolicy: item.cancellationPolicy,
+      cancellationDeadlineHours: item.cancellationDeadlineHours,
+      cancellationFeePercent: item.cancellationFeePercent,
+      checkInTime: item.checkInTime,
+    };
+  }
+  return {
+    cancellationPolicy: item.ratePlan.cancellationPolicy,
+    cancellationDeadlineHours: item.ratePlan.cancellationDeadlineHours,
+    cancellationFeePercent: item.ratePlan.cancellationFeePercent,
+    checkInTime: item.roomType.checkInTime ?? item.roomType.property.checkInTime,
+  };
+}
+
+// Ethiopia uses UTC+3 all year (no daylight saving).
+const ADDIS_ABABA_UTC_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+// The moment of check-in in Addis Ababa time. checkInDate is stored as a
+// calendar date at UTC midnight. Without a valid check-in time, the start of
+// the check-in day (00:00 local) is used.
+export function checkInMoment(checkInDate: Date, checkInTime: string | null): Date {
+  const match = checkInTime?.trim().match(/^(\d{1,2}):(\d{2})/);
+  let hours = 0;
+  let minutes = 0;
+  if (match) {
+    const h = Number(match[1]);
+    const m = Number(match[2]);
+    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+      hours = h;
+      minutes = m;
+    }
+  }
+  const localWallClock = Date.UTC(
+    checkInDate.getUTCFullYear(),
+    checkInDate.getUTCMonth(),
+    checkInDate.getUTCDate(),
+    hours,
+    minutes
+  );
+  return new Date(localWallClock - ADDIS_ABABA_UTC_OFFSET_MS);
+}
+
 // Refund and cancellation-fee split for a customer cancelling a paid booking.
-// Amounts are worked out in cents per booking item, based on each item's
-// rate-plan cancellation policy, then summed.
+// Amounts are worked out in cents per booking item, based on the terms each
+// item was booked under, then summed.
 export function calculateCancellationAmounts(
   booking: {
     subtotal: { toString(): string };
@@ -8,11 +77,7 @@ export function calculateCancellationAmounts(
     items: {
       subtotal: { toString(): string };
       checkInDate: Date;
-      ratePlan: {
-        cancellationPolicy: string;
-        cancellationDeadlineHours: number | null;
-        cancellationFeePercent: { toString(): string } | null;
-      };
+      terms: CancellationTerms;
     }[];
   },
   now: Date
@@ -62,14 +127,14 @@ export function calculateCancellationAmounts(
 
     allocatedCents += itemBaseCents;
 
-    const policy = item.ratePlan.cancellationPolicy;
+    const policy = item.terms.cancellationPolicy;
     const deadlineHours =
-      item.ratePlan.cancellationDeadlineHours;
+      item.terms.cancellationDeadlineHours;
 
     const deadline =
       deadlineHours === null
         ? null
-        : item.checkInDate.getTime() -
+        : checkInMoment(item.checkInDate, item.terms.checkInTime).getTime() -
           Math.max(0, deadlineHours) * 60 * 60 * 1000;
 
     const beforeDeadline =
@@ -88,10 +153,10 @@ export function calculateCancellationAmounts(
       // If the fee percentage is missing, use a conservative
       // 100% fee rather than accidentally granting a full refund.
       const configuredFee =
-        item.ratePlan.cancellationFeePercent === null
+        item.terms.cancellationFeePercent === null
           ? 100
           : Number(
-              item.ratePlan.cancellationFeePercent.toString()
+              item.terms.cancellationFeePercent.toString()
             );
 
       if (!Number.isFinite(configuredFee)) {
@@ -127,5 +192,40 @@ export function calculateCancellationAmounts(
     cancellationFeeAmount: (
       cancellationFeeCents / 100
     ).toFixed(2),
+  };
+}
+
+const toCents = (value: { toString(): string }) => {
+  const number = Number(value.toString());
+  if (!Number.isFinite(number)) throw new Error("Invalid booking amount.");
+  return Math.round(number * 100);
+};
+const fromCents = (cents: number) => (cents / 100).toFixed(2);
+
+// Platform and hotel shares of the money kept after a refund.
+//
+// The kept amount (total minus refund) is split in the same proportion as the
+// original booking: the platform keeps the same share of it as its original
+// commission was of the total, and the hotel gets the rest. Chapa's
+// processing fee was already paid on the original payment and stays with the
+// hotel, so on a full refund the hotel's share is minus that fee.
+export function calculateSharesAfterRefund(booking: {
+  totalAmount: { toString(): string };
+  platformCommission: { toString(): string };
+  paymentFee: { toString(): string };
+  refundAmount: { toString(): string };
+}) {
+  const totalCents = toCents(booking.totalAmount);
+  const commissionCents = toCents(booking.platformCommission);
+  const paymentFeeCents = toCents(booking.paymentFee);
+  const refundCents = Math.min(Math.max(0, toCents(booking.refundAmount)), totalCents);
+  const keptCents = totalCents - refundCents;
+
+  const newCommissionCents =
+    totalCents > 0 ? Math.round((commissionCents * keptCents) / totalCents) : 0;
+
+  return {
+    platformCommission: fromCents(newCommissionCents),
+    partnerAmount: fromCents(keptCents - newCommissionCents - paymentFeeCents),
   };
 }
