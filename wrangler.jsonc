@@ -3,6 +3,9 @@
   "main": ".open-next/worker.js",
   "name": "ethiopianbooking",
   "compatibility_date": "2026-11-17",
+  // Keep variables set in the Cloudflare dashboard when deploying from Git.
+  // Without this, `wrangler deploy` deletes dashboard plain-text variables.
+  "keep_vars": true,
   "compatibility_flags": [
     "nodejs_compat",
     "global_fetch_strictly_public"
