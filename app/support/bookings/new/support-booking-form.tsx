@@ -104,6 +104,6 @@ export default function SupportBookingForm() {
     </section>
     <div><label className={label}>Special requests (optional)</label><textarea rows={3} maxLength={2000} className="w-full rounded-xl border border-[#DDE3D9] p-3 text-sm outline-none focus:border-[#718A67]" value={specialRequests} onChange={e=>setSpecialRequests(e.target.value)}/></div>
     <button disabled={busy||!ratePlanId||!checkInDate||!checkOutDate||!email} className="w-full rounded-xl bg-[#294A35] px-5 py-3.5 text-sm font-semibold text-white disabled:opacity-50">{busy?"Creating booking and preparing Chapa…":"Create booking and send payment link"}</button>
-    <p className="text-[11px] leading-5 text-[#899184]">Room availability and final date-based pricing are checked again securely when the booking is submitted. A 15-minute inventory hold applies while payment is pending.</p>
+    <p className="text-[11px] leading-5 text-[#899184]">Room availability and final date-based pricing are checked again securely when the booking is submitted. Rooms are held for 24 hours while the guest completes payment from the emailed link.</p>
   </form>;
 }

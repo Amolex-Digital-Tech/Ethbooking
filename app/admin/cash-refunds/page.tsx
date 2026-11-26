@@ -153,7 +153,7 @@ export default async function AdminCashRefundsPage({ searchParams }: PageProps) 
               <p className="text-xs font-semibold tracking-[0.16em] text-[#75816F]">FINANCIAL OPERATIONS</p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight">Cash refunds</h1>
               <p className="mt-2 text-sm text-[#77766F]">
-                A register of full cash refunds handed to customers at EthiopianBooking branches.
+                A register of cash refunds handed to customers at EthiopianBooking branches.
               </p>
             </div>
             <Link href="/admin/payments" className="rounded-xl border border-[#D9DED5] bg-white px-4 py-2.5 text-sm font-semibold hover:bg-[#FAFBF8]">

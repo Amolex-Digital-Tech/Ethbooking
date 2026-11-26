@@ -2,6 +2,26 @@ import { prisma } from "@/lib/prisma/client";
 import { releaseRoomInventory } from "@/lib/availability/release-room-inventory";
 import { completeChapaPayment } from "@/lib/payments/chapa/verify-payment";
 import { ChapaApiError } from "@/lib/payments/chapa/client";
+import {
+  isPendingPaymentAbandoned,
+  isUnverifiablePaymentAbandoned,
+} from "@/lib/payments/payment-attempt-abandonment";
+
+// Mark an unresolved attempt as CANCELLED so it stops holding inventory.
+// completeChapaPayment() still accepts CANCELLED -> SUCCESS, so a payment
+// that does arrive later is recorded and routed to refund review.
+async function abandonPaymentAttempt(transactionReference: string, failureReason: string) {
+  await prisma.paymentTransaction.updateMany({
+    where: {
+      transactionReference,
+      status: { in: ["INITIATED", "PENDING"] },
+    },
+    data: {
+      status: "CANCELLED",
+      failureReason,
+    },
+  });
+}
 
 export async function expireBooking(bookingId: string) {
   if (!bookingId) {
@@ -25,8 +45,10 @@ export async function expireBooking(bookingId: string) {
         provider: "CHAPA",
         status: { in: ["INITIATED", "PENDING"] },
       },
-      select: { transactionReference: true },
+      select: { transactionReference: true, createdAt: true },
     });
+
+    const now = new Date();
 
     for (const payment of pendingPayments) {
       try {
@@ -42,6 +64,13 @@ export async function expireBooking(bookingId: string) {
           };
         }
         if (status !== "failed" && status !== "cancelled") {
+          if (isPendingPaymentAbandoned(payment.createdAt, now)) {
+            await abandonPaymentAttempt(
+              payment.transactionReference,
+              `Chapa still reported this payment as ${status || "pending"} after the booking hold expired. Treated as abandoned.`
+            );
+            continue;
+          }
           return {
             success: true,
             expired: false,
@@ -71,6 +100,26 @@ export async function expireBooking(bookingId: string) {
             });
             continue;
           }
+          // Any other 4xx means Chapa answered and the payment is not
+          // successful (for example "payment not paid yet"). Treat it
+          // like a pending result.
+          const providerSaysNotPaid =
+            verificationError.statusCode >= 400 && verificationError.statusCode < 500;
+          if (providerSaysNotPaid && isPendingPaymentAbandoned(payment.createdAt, now)) {
+            await abandonPaymentAttempt(
+              payment.transactionReference,
+              `Chapa verification returned HTTP ${verificationError.statusCode} after the booking hold expired. Treated as abandoned.`
+            );
+            continue;
+          }
+        }
+        if (isUnverifiablePaymentAbandoned(payment.createdAt, now)) {
+          console.error("Chapa verification has failed for over 24 hours; releasing the hold:", verificationError);
+          await abandonPaymentAttempt(
+            payment.transactionReference,
+            "Chapa verification could not be completed for over 24 hours after the booking hold expired. Treated as abandoned."
+          );
+          continue;
         }
         console.error("Chapa expiry verification is temporarily unavailable:", verificationError);
         return {

@@ -87,7 +87,7 @@ export default function BookingAdminActions({
     setError("");
     setMessage("");
     if (!confirmed) {
-      setError("Confirm that the full cash amount has physically been handed over.");
+      setError("Confirm that the refund amount has physically been handed over in cash.");
       return;
     }
     if (!window.confirm(`Confirm that ${currency} ${Number(refundAmount).toLocaleString()} has been handed to ${recipientName.trim()} in cash, and record receipt ${receiptNumber.trim()}?`)) return;
@@ -147,10 +147,10 @@ export default function BookingAdminActions({
       {canRecordCashRefund && (
         <form onSubmit={recordCashRefund} className="mt-6 border-t border-gray-200 pt-6">
           <div className="rounded-xl bg-amber-50 p-4">
-            <p className="text-sm font-semibold text-amber-900">Full cash refund — handover required</p>
-            <p className="mt-1 text-sm text-amber-800">Record this only after branch staff have physically handed the full amount to the customer. The original Chapa payment will remain recorded as successful.</p>
+            <p className="text-sm font-semibold text-amber-900">Cash refund — handover required</p>
+            <p className="mt-1 text-sm text-amber-800">Record this only after branch staff have physically handed this amount to the customer. The original Chapa payment will remain recorded as successful.</p>
             <p className="mt-3 text-2xl font-bold text-[#263B2D]">{currency} {Number(refundAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-            <p className="text-xs text-amber-800">Full successful payment amount. Partial refunds are not supported.</p>
+            <p className="text-xs text-amber-800">Amount due under the booking's refund. This can be less than the amount paid when a cancellation fee applies.</p>
           </div>
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <Field label="Branch name" value={branchName} onChange={setBranchName} required placeholder="e.g. Addis Ababa Branch" />
@@ -163,9 +163,9 @@ export default function BookingAdminActions({
           <textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} rows={2} className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm" placeholder="Additional handover details..." />
           <label className="mt-5 flex items-start gap-3 rounded-xl border border-gray-200 p-4 text-sm">
             <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="mt-1 h-4 w-4" />
-            <span><strong>I confirm the full cash amount has physically been handed over.</strong><br /><span className="text-gray-500">I have verified the recipient and booking, and the receipt number above matches the branch&apos;s official receipt.</span></span>
+            <span><strong>I confirm the refund amount has physically been handed over in cash.</strong><br /><span className="text-gray-500">I have verified the recipient and booking, and the receipt number above matches the branch&apos;s official receipt.</span></span>
           </label>
-          <button type="submit" disabled={busy || !confirmed} className="mt-5 rounded-xl bg-[#263B2D] px-5 py-3 text-sm font-semibold text-white hover:bg-[#405744] disabled:cursor-not-allowed disabled:opacity-50">{busy ? "Recording..." : "Record full cash refund"}</button>
+          <button type="submit" disabled={busy || !confirmed} className="mt-5 rounded-xl bg-[#263B2D] px-5 py-3 text-sm font-semibold text-white hover:bg-[#405744] disabled:cursor-not-allowed disabled:opacity-50">{busy ? "Recording..." : "Record cash refund"}</button>
         </form>
       )}
 

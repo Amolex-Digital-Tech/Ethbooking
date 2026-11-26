@@ -452,7 +452,7 @@ export default async function AdminBookingDetailsPage({
               <h2 className="text-lg font-bold">Cash refund handover record</h2>
               <Status value="REFUNDED" />
             </div>
-            <p className="mt-2 text-sm text-gray-500">Permanent record of the full cash amount handed to the recipient at an EthiopianBooking branch. The original online payment transaction remains unchanged.</p>
+            <p className="mt-2 text-sm text-gray-500">Permanent record of the cash amount handed to the recipient at an EthiopianBooking branch. The original online payment transaction remains unchanged.</p>
             <div className="mt-5 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
               <div><p className="text-gray-500">Amount handed over</p><p className="mt-1 text-lg font-bold">{formatMoney(booking.cashRefund.amount, booking.cashRefund.currency)}</p></div>
               <div><p className="text-gray-500">Branch</p><p className="mt-1 font-semibold">{booking.cashRefund.branchName}</p></div>
