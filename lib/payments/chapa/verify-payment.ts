@@ -419,7 +419,7 @@ export async function completeChapaPayment(
     // Record the actual payment and add its full amount
     // to the amount awaiting refund.
     if (
-      ["CANCELLED", "EXPIRED", "REFUND_PENDING"].includes(
+      ["CANCELLED", "EXPIRED", "REFUND_PENDING", "REFUNDED"].includes(
         latestBooking.status
       ) &&
       [
@@ -427,8 +427,14 @@ export async function completeChapaPayment(
         "FAILED",
         "PAID",
         "REFUND_PENDING",
+        "REFUNDED",
       ].includes(latestBooking.paymentStatus)
     ) {
+      // A booking that was never paid before keeps nothing from this payment:
+      // it is refunded in full, so the platform and hotel shares are zero.
+      const neverPaidBefore = ["UNPAID", "FAILED"].includes(
+        latestBooking.paymentStatus
+      );
       const claimed = await tx.booking.updateMany({
         where: {
           id: latestBooking.id,
@@ -441,6 +447,9 @@ export async function completeChapaPayment(
           refundAmount: {
             increment: transaction.amount,
           },
+          ...(neverPaidBefore
+            ? { platformCommission: 0, partnerAmount: 0 }
+            : {}),
         },
       });
 

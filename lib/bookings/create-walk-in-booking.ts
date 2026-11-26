@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma/client";
 import { lockRoomTypeInventory } from "@/lib/inventory/lock-room-type-inventory";
 import { createRoomInventory } from "@/lib/inventory/create-room-inventory";
 import { reserveRoomInventoryInTransaction } from "@/lib/availability/reserve-room-inventory";
+import { bookedCancellationTerms } from "@/lib/bookings/booked-cancellation-terms";
 
 type CreateWalkInBookingInput = {
   partnerId: string;
@@ -176,6 +177,7 @@ export async function createWalkInBooking(
             select: {
               id: true,
               name: true,
+              checkInTime: true,
             },
           },
         },
@@ -319,6 +321,7 @@ export async function createWalkInBooking(
           pricePerNight,
           subtotal,
           currency: ratePlan.currency,
+          ...bookedCancellationTerms(ratePlan, roomType.checkInTime ?? roomType.property.checkInTime),
         },
       });
 

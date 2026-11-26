@@ -89,7 +89,9 @@ export default async function AdminBookingDetailsPage({
       paymentTransactions: {
         orderBy: { createdAt: "desc" },
       },
-      cashRefund: true,
+      cashRefunds: {
+        orderBy: { handedOverAt: "asc" },
+      },
     },
   });
 
@@ -446,36 +448,40 @@ export default async function AdminBookingDetailsPage({
           )}
         </section>
 
-        {booking.cashRefund && (
-          <section className="rounded-2xl border border-green-200 bg-white p-6">
+        {booking.cashRefunds.map((cashRefund, index) => (
+          <section key={cashRefund.id} className="rounded-2xl border border-green-200 bg-white p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-bold">Cash refund handover record</h2>
+              <h2 className="text-lg font-bold">
+                Cash refund handover record{booking.cashRefunds.length > 1 ? ` ${index + 1} of ${booking.cashRefunds.length}` : ""}
+              </h2>
               <Status value="REFUNDED" />
             </div>
             <p className="mt-2 text-sm text-gray-500">Permanent record of the cash amount handed to the recipient at an EthiopianBooking branch. The original online payment transaction remains unchanged.</p>
             <div className="mt-5 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
-              <div><p className="text-gray-500">Amount handed over</p><p className="mt-1 text-lg font-bold">{formatMoney(booking.cashRefund.amount, booking.cashRefund.currency)}</p></div>
-              <div><p className="text-gray-500">Branch</p><p className="mt-1 font-semibold">{booking.cashRefund.branchName}</p></div>
-              <div><p className="text-gray-500">Branch address</p><p className="mt-1 font-semibold">{booking.cashRefund.branchAddress}</p></div>
-              <div><p className="text-gray-500">Recipient</p><p className="mt-1 font-semibold">{booking.cashRefund.recipientName}</p></div>
-              <div><p className="text-gray-500">Recipient phone</p><p className="mt-1 font-semibold">{booking.cashRefund.recipientPhone || "Not provided"}</p></div>
-              <div><p className="text-gray-500">Official receipt number</p><p className="mt-1 font-semibold">{booking.cashRefund.receiptNumber}</p></div>
-              <div><p className="text-gray-500">Cash handed over</p><p className="mt-1 font-semibold">{new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Addis_Ababa" }).format(booking.cashRefund.handedOverAt)} (EAT)</p></div>
-              <div><p className="text-gray-500">Recorded by profile</p><p className="mt-1 break-all font-semibold">{booking.cashRefund.recordedByProfileId}</p></div>
-              <div><p className="text-gray-500">Record created</p><p className="mt-1 font-semibold">{formatDateTime(booking.cashRefund.createdAt)}</p></div>
+              <div><p className="text-gray-500">Amount handed over</p><p className="mt-1 text-lg font-bold">{formatMoney(cashRefund.amount, cashRefund.currency)}</p></div>
+              <div><p className="text-gray-500">Branch</p><p className="mt-1 font-semibold">{cashRefund.branchName}</p></div>
+              <div><p className="text-gray-500">Branch address</p><p className="mt-1 font-semibold">{cashRefund.branchAddress}</p></div>
+              <div><p className="text-gray-500">Recipient</p><p className="mt-1 font-semibold">{cashRefund.recipientName}</p></div>
+              <div><p className="text-gray-500">Recipient phone</p><p className="mt-1 font-semibold">{cashRefund.recipientPhone || "Not provided"}</p></div>
+              <div><p className="text-gray-500">Official receipt number</p><p className="mt-1 font-semibold">{cashRefund.receiptNumber}</p></div>
+              <div><p className="text-gray-500">Cash handed over</p><p className="mt-1 font-semibold">{new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Addis_Ababa" }).format(cashRefund.handedOverAt)} (EAT)</p></div>
+              <div><p className="text-gray-500">Recorded by profile</p><p className="mt-1 break-all font-semibold">{cashRefund.recordedByProfileId}</p></div>
+              <div><p className="text-gray-500">Record created</p><p className="mt-1 font-semibold">{formatDateTime(cashRefund.createdAt)}</p></div>
             </div>
-            {booking.cashRefund.note && <div className="mt-4 border-t border-gray-100 pt-4 text-sm"><p className="text-gray-500">Additional note</p><p className="mt-1 whitespace-pre-wrap">{booking.cashRefund.note}</p></div>}
+            {cashRefund.note && <div className="mt-4 border-t border-gray-100 pt-4 text-sm"><p className="text-gray-500">Additional note</p><p className="mt-1 whitespace-pre-wrap">{cashRefund.note}</p></div>}
           </section>
-        )}
+        ))}
 
         <BookingAdminActions
           bookingId={booking.id}
           bookingStatus={booking.status}
           paymentStatus={booking.paymentStatus}
           hasSuccessfulPayment={hasSuccessfulPayment}
-          refundAmount={booking.refundAmount.toString()}
+          refundAmount={booking.cashRefunds
+            .reduce((due, cashRefund) => due.minus(cashRefund.amount), booking.refundAmount)
+            .toString()}
           currency={booking.currency}
-          hasCashRefund={Boolean(booking.cashRefund)}
+          hasCashRefund={booking.cashRefunds.length > 0}
         />
 
         {(booking.cancellationReason || booking.cancelledAt) && (
