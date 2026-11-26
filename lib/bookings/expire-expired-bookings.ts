@@ -2,27 +2,60 @@ import { prisma } from "@/lib/prisma/client";
 import { expireBooking } from "@/lib/bookings/expire-booking";
 
 const BATCH_SIZE = 50;
+// Bookings with an unresolved Chapa attempt need a provider call each and
+// may legitimately stay held for a while, so they get their own smaller
+// batch. Keeping them separate stops a backlog of them from filling the
+// main batch and blocking every other expired booking.
+const UNRESOLVED_PAYMENT_BATCH_SIZE = 25;
+
+const UNRESOLVED_PAYMENT_STATUSES = ["INITIATED", "PENDING"] as const;
 
 export async function expireExpiredBookings() {
   const now = new Date();
+  const expiredPendingBooking = {
+    status: "PAYMENT_PENDING" as const,
+    paymentStatus: "PENDING" as const,
+    expiresAt: {
+      lte: now,
+    },
+  };
 
-  const bookings = await prisma.booking.findMany({
-    where: {
-      status: "PAYMENT_PENDING",
-      paymentStatus: "PENDING",
-      expiresAt: {
-        lte: now,
+  const [withoutUnresolvedPayments, withUnresolvedPayments] = await Promise.all([
+    prisma.booking.findMany({
+      where: {
+        ...expiredPendingBooking,
+        paymentTransactions: {
+          none: { status: { in: [...UNRESOLVED_PAYMENT_STATUSES] } },
+        },
       },
-    },
-    select: {
-      id: true,
-      bookingReference: true,
-    },
-    orderBy: {
-      expiresAt: "asc",
-    },
-    take: BATCH_SIZE,
-  });
+      select: {
+        id: true,
+        bookingReference: true,
+      },
+      orderBy: {
+        expiresAt: "asc",
+      },
+      take: BATCH_SIZE,
+    }),
+    prisma.booking.findMany({
+      where: {
+        ...expiredPendingBooking,
+        paymentTransactions: {
+          some: { status: { in: [...UNRESOLVED_PAYMENT_STATUSES] } },
+        },
+      },
+      select: {
+        id: true,
+        bookingReference: true,
+      },
+      orderBy: {
+        expiresAt: "asc",
+      },
+      take: UNRESOLVED_PAYMENT_BATCH_SIZE,
+    }),
+  ]);
+
+  const bookings = [...withoutUnresolvedPayments, ...withUnresolvedPayments];
 
   let expiredCount = 0;
   let failedCount = 0;

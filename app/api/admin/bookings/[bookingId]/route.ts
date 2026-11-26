@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth/require-role";
 import { handleAuthError } from "@/lib/auth/handle-auth-error";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma/client";
+import { resolveCashRefundAmount } from "@/lib/refunds/cash-refund-amount";
 import { releaseRoomInventory } from "@/lib/availability/release-room-inventory";
 import { writeAuditLog } from "@/lib/admin/write-audit-log";
 
@@ -104,20 +105,20 @@ export async function POST(request: Request, { params }: RouteProps) {
           return { error: "Enter valid branch, recipient and receipt details. Branch address must be at least 5 characters.", status: 400 };
         }
         if (!confirmed) {
-          return { error: "Confirm that the full cash amount has physically been handed to the recipient.", status: 400 };
+          return { error: "Confirm that the refund amount has physically been handed to the recipient in cash.", status: 400 };
         }
-        const fullPaidAmount = successfulPayments.reduce(
-          (sum, payment) => sum.plus(payment.amount),
-          new Prisma.Decimal(0)
-        );
-        if (!booking.refundAmount.equals(fullPaidAmount)) {
-          return { error: "The refund amount does not match the full successful payment amount. Ask an administrator to review this booking.", status: 409 };
+        const refund = resolveCashRefundAmount({
+          refundAmount: booking.refundAmount,
+          successfulPaymentAmounts: successfulPayments.map((payment) => payment.amount),
+        });
+        if (!refund.ok) {
+          return { error: refund.error, status: 409 };
         }
         const now = new Date();
         await tx.cashRefund.create({
           data: {
             bookingId: booking.id,
-            amount: fullPaidAmount,
+            amount: refund.amount,
             currency: booking.currency,
             branchName,
             branchAddress,
@@ -138,8 +139,8 @@ export async function POST(request: Request, { params }: RouteProps) {
         }
         return {
           success: true,
-          message: "Full cash refund recorded. Booking marked as refunded. The original payment transaction remains unchanged.",
-          refundAmount: fullPaidAmount.toString(),
+          message: `${refund.isFullRefund ? "Full" : "Partial"} cash refund of ${booking.currency} ${refund.amount.toFixed(2)} recorded. Booking marked as refunded. The original payment transaction remains unchanged.`,
+          refundAmount: refund.amount.toString(),
         };
       }
 

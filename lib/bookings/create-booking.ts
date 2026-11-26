@@ -36,6 +36,9 @@ type CreateBookingInput = {
   customerPhone?: string;
   customerCountry?: string;
   specialRequests?: string;
+  // How long the room hold lasts before the booking expires unpaid.
+  // Defaults to DEFAULT_HOLD_MINUTES.
+  holdMinutes?: number;
 };
 
 type CreateBookingResult = {
@@ -61,6 +64,9 @@ type CreateBookingResult = {
   paymentFee: string;
   partnerAmount: string;
 };
+
+export const DEFAULT_HOLD_MINUTES = 15;
+export const MAX_HOLD_MINUTES = 24 * 60;
 
 const PLATFORM_COMMISSION_RATE = new Prisma.Decimal("0.10");
 
@@ -116,6 +122,10 @@ export async function createBooking(input: CreateBookingInput): Promise<CreateBo
   if (checkIn >= checkOut) throw new Error("Check-out date must be later than check-in date.");
   const todayInEthiopia = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Addis_Ababa" }).format(new Date());
   if (formatDate(checkIn) < todayInEthiopia) throw new Error("Check-in date cannot be in the past.");
+  const holdMinutes = input.holdMinutes ?? DEFAULT_HOLD_MINUTES;
+  if (!Number.isInteger(holdMinutes) || holdMinutes < 1 || holdMinutes > MAX_HOLD_MINUTES) {
+    throw new Error(`Hold duration must be between 1 and ${MAX_HOLD_MINUTES} minutes.`);
+  }
   const nights = calculateNights(checkIn, checkOut);
 
   return prisma.$transaction(async (transaction) => {
@@ -213,7 +223,7 @@ export async function createBooking(input: CreateBookingInput): Promise<CreateBo
     const booking = await transaction.booking.create({
       data: {
         bookingReference, customerProfileId, status: "PAYMENT_PENDING", paymentStatus: "PENDING",
-        expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        expiresAt: new Date(Date.now() + holdMinutes * 60 * 1000),
         checkInDate: checkIn, checkOutDate: checkOut, nights, guestCount: guests,
         currency: bookingCurrency, subtotal, discountAmount, taxAmount, totalAmount,
         platformCommission, paymentFee, partnerAmount,

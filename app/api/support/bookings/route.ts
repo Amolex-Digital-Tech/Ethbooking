@@ -6,6 +6,10 @@ import { AuthError } from "@/lib/auth/auth-error";
 import { prisma } from "@/lib/prisma/client";
 import { sendResendEmail } from "@/lib/email/resend";
 
+// Support bookings send the guest a payment link by email, so the guest
+// needs longer than the 15-minute online checkout hold to pay.
+const SUPPORT_BOOKING_HOLD_MINUTES = 24 * 60;
+
 function htmlEscape(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -76,6 +80,7 @@ export async function POST(request: Request) {
 
     const result = await createBooking({
       customerProfileId: null,
+      holdMinutes: SUPPORT_BOOKING_HOLD_MINUTES,
       roomItems,
       checkInDate,
       checkOutDate,
@@ -125,8 +130,8 @@ export async function POST(request: Request) {
       const emailResult = await sendResendEmail({
         to: customerEmail,
         subject: `Payment required for EthiopianBooking reservation ${result.bookingReference}`,
-        text: `Hello ${customerFirstName}, your reservation ${result.bookingReference} at ${result.property.name} has been created. Amount due: ${result.currency} ${result.totalAmount}. Complete payment securely using this Chapa link: ${payment.checkoutUrl}`,
-        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;color:#263b2d"><h2>Complete your EthiopianBooking payment</h2><p>Hello ${safeName},</p><p>Your reservation at <strong>${safeProperty}</strong> has been created.</p><p>Booking reference: <strong>${safeReference}</strong></p><p>Amount due: <strong>${result.currency} ${result.totalAmount}</strong></p><p><a href="${safeUrl}" style="display:inline-block;background:#294a35;color:#fff;padding:13px 20px;border-radius:8px;text-decoration:none">Pay securely with Chapa</a></p><p>If you did not request this reservation, please contact EthiopianBooking support.</p></div>`,
+        text: `Hello ${customerFirstName}, your reservation ${result.bookingReference} at ${result.property.name} has been created. Amount due: ${result.currency} ${result.totalAmount}. Complete payment within 24 hours to keep your rooms, using this secure Chapa link: ${payment.checkoutUrl}`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;color:#263b2d"><h2>Complete your EthiopianBooking payment</h2><p>Hello ${safeName},</p><p>Your reservation at <strong>${safeProperty}</strong> has been created.</p><p>Booking reference: <strong>${safeReference}</strong></p><p>Amount due: <strong>${result.currency} ${result.totalAmount}</strong></p><p><a href="${safeUrl}" style="display:inline-block;background:#294a35;color:#fff;padding:13px 20px;border-radius:8px;text-decoration:none">Pay securely with Chapa</a></p><p>Please complete payment within 24 hours. After that the rooms are released.</p><p>If you did not request this reservation, please contact EthiopianBooking support.</p></div>`,
       });
       paymentEmailSent = emailResult.sent;
     }
