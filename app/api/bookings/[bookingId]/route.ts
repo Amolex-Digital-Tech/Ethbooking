@@ -5,6 +5,7 @@ import { AuthError } from "@/lib/auth/auth-error";
 import { prisma } from "@/lib/prisma/client";
 import { releaseRoomInventory } from "@/lib/availability/release-room-inventory";
 import { expireBooking } from "@/lib/bookings/expire-booking";
+import { syncPendingChapaPayments } from "@/lib/payments/chapa/sync-pending-payments";
 import {
   calculateCancellationAmounts,
   calculateSharesAfterRefund,
@@ -48,10 +49,22 @@ export async function GET(
       );
     }
 
-    const expirationCandidate = await prisma.booking.findFirst({
+    let expirationCandidate = await prisma.booking.findFirst({
       where: { id: normalizedBookingId, customerProfileId: currentUser.profile.id },
       select: { status: true, paymentStatus: true, expiresAt: true },
     });
+
+    // The customer may be back from Chapa before its callback or webhook has
+    // reached us, so ask Chapa directly whether the payment went through.
+    if (expirationCandidate?.status === "PAYMENT_PENDING" && expirationCandidate.paymentStatus === "PENDING") {
+      try {
+        if (await syncPendingChapaPayments(normalizedBookingId)) {
+          expirationCandidate = null;
+        }
+      } catch (syncError) {
+        console.error("Chapa payment sync failed during booking retrieval:", syncError);
+      }
+    }
 
     if (expirationCandidate?.status === "PAYMENT_PENDING" && expirationCandidate.paymentStatus === "PENDING" && expirationCandidate.expiresAt && expirationCandidate.expiresAt <= new Date()) {
       try {

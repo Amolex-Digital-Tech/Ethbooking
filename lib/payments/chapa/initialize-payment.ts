@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/prisma/client";
 import { chapaRequest, ChapaApiError } from "@/lib/payments/chapa/client";
+import { syncPendingChapaPayments } from "@/lib/payments/chapa/sync-pending-payments";
+
+const ALREADY_PAID_MESSAGE =
+  "This booking has already been paid. Refresh the page to see your confirmed booking.";
 
 type ChapaInitializeResponse = {
   message: string;
@@ -47,6 +51,20 @@ export async function initializeChapaPayment(
 
   if (!booking) {
     throw new Error("Booking not found.");
+  }
+
+  // Before reusing a checkout, ask Chapa whether an earlier attempt was
+  // already paid: its checkout link would only show "already paid".
+  if (
+    booking.status === "PAYMENT_PENDING" &&
+    booking.paymentStatus === "PENDING" &&
+    (await syncPendingChapaPayments(booking.id))
+  ) {
+    throw new Error(ALREADY_PAID_MESSAGE);
+  }
+
+  if (booking.status === "CONFIRMED" && booking.paymentStatus === "PAID") {
+    throw new Error(ALREADY_PAID_MESSAGE);
   }
 
   if (
@@ -156,7 +174,7 @@ if (!baseUrl) {
             tx_ref: transactionReference,
             callback_url: `${baseUrl}/api/payments/chapa/callback`,
             return_url: booking.customerProfileId
-              ? `${baseUrl}/dashboard/bookings/${booking.id}`
+              ? `${baseUrl}/dashboard/bookings/${booking.id}?payment=return`
               : `${baseUrl}/booking/payment-return?booking=${encodeURIComponent(booking.bookingReference)}`,
             customization: {
               title: "EthiopianBooking",
