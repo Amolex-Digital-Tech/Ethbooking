@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma/client";
 import { chapaRequest, ChapaApiError } from "@/lib/payments/chapa/client";
+import { syncPendingChapaPayments } from "@/lib/payments/chapa/sync-pending-payments";
 
 type ChapaInitializeResponse = {
   message: string;
@@ -49,12 +50,27 @@ export async function initializeChapaPayment(
     throw new Error("Booking not found.");
   }
 
+  // A previous attempt may have been paid without Chapa's callback reaching
+  // us. Check first, so we never send the customer back to a checkout that
+  // Chapa reports as "already paid".
+  if (
+    booking.status === "PAYMENT_PENDING" &&
+    booking.paymentStatus === "PENDING" &&
+    (await syncPendingChapaPayments(booking.id))
+  ) {
+    throw new Error(
+      "This booking has already been paid. Your confirmation is in your bookings and has been emailed to you."
+    );
+  }
+
   if (
     booking.status !== "PAYMENT_PENDING" ||
     booking.paymentStatus !== "PENDING"
   ) {
     throw new Error(
-      "This booking is not available for payment."
+      booking.paymentStatus === "PAID"
+        ? "This booking has already been paid."
+        : "This booking is not available for payment."
     );
   }
 

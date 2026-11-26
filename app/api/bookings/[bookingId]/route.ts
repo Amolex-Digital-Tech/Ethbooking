@@ -5,6 +5,7 @@ import { AuthError } from "@/lib/auth/auth-error";
 import { prisma } from "@/lib/prisma/client";
 import { releaseRoomInventory } from "@/lib/availability/release-room-inventory";
 import { expireBooking } from "@/lib/bookings/expire-booking";
+import { syncPendingChapaPayments } from "@/lib/payments/chapa/sync-pending-payments";
 import {
   calculateCancellationAmounts,
   calculateSharesAfterRefund,
@@ -52,6 +53,13 @@ export async function GET(
       where: { id: normalizedBookingId, customerProfileId: currentUser.profile.id },
       select: { status: true, paymentStatus: true, expiresAt: true },
     });
+
+    // The customer may be returning from Chapa before (or without) Chapa's
+    // callback reaching us: ask Chapa directly so the booking shows as paid
+    // and the receipt is sent.
+    if (expirationCandidate?.status === "PAYMENT_PENDING" && expirationCandidate.paymentStatus === "PENDING") {
+      await syncPendingChapaPayments(normalizedBookingId);
+    }
 
     if (expirationCandidate?.status === "PAYMENT_PENDING" && expirationCandidate.paymentStatus === "PENDING" && expirationCandidate.expiresAt && expirationCandidate.expiresAt <= new Date()) {
       try {
