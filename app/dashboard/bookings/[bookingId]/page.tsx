@@ -12,11 +12,44 @@ export default function BookingDetailsPage() {
   const searchParams = useSearchParams();
 
   const paymentResult = searchParams.get("payment");
+  // Chapa sends the customer back with ?payment=return, possibly before it
+  // has told us about the payment.
+  const returningFromPayment = paymentResult === "return";
 
   const [booking, setBooking] = useState<BookingDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [confirmationTimedOut, setConfirmationTimedOut] = useState(false);
+
+  const bookingIsPaid =
+    booking?.status === "CONFIRMED" && booking.paymentStatus === "PAID";
+  const awaitingPaymentConfirmation =
+    returningFromPayment &&
+    !confirmationTimedOut &&
+    booking?.status === "PAYMENT_PENDING" &&
+    booking.paymentStatus === "PENDING";
+
+  // While confirming, reload the booking ~3 seconds after each load finishes.
+  // Each load asks Chapa for the payment result.
+  useEffect(() => {
+    if (!awaitingPaymentConfirmation) return;
+    const timeout = window.setTimeout(
+      () => setRefreshKey((current) => current + 1),
+      3_000
+    );
+    return () => window.clearTimeout(timeout);
+  }, [awaitingPaymentConfirmation, booking]);
+
+  // Stop waiting after about a minute and show the pending message instead.
+  useEffect(() => {
+    if (!returningFromPayment) return;
+    const timeout = window.setTimeout(
+      () => setConfirmationTimedOut(true),
+      60_000
+    );
+    return () => window.clearTimeout(timeout);
+  }, [returningFromPayment]);
 
   useEffect(() => {
     let isActive = true;
@@ -112,7 +145,18 @@ export default function BookingDetailsPage() {
 
   return (
     <>
-      {paymentResult === "success" && (
+      {awaitingPaymentConfirmation && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mx-auto mt-6 max-w-4xl rounded-xl border border-sky-200 bg-sky-50 p-4 text-sky-800"
+        >
+          Confirming your payment… This usually takes a few seconds.
+        </div>
+      )}
+
+      {(paymentResult === "success" ||
+        (returningFromPayment && bookingIsPaid)) && (
         <div
           role="status"
           className="mx-auto mt-6 max-w-4xl rounded-xl border border-green-200 bg-green-50 p-4 text-green-800"
@@ -122,7 +166,11 @@ export default function BookingDetailsPage() {
         </div>
       )}
 
-      {paymentResult === "pending" && (
+      {(paymentResult === "pending" ||
+        (returningFromPayment &&
+          confirmationTimedOut &&
+          booking.status === "PAYMENT_PENDING" &&
+          booking.paymentStatus === "PENDING")) && (
         <div
           role="status"
           className="mx-auto mt-6 max-w-4xl rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-800"
