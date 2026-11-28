@@ -1,6 +1,7 @@
 import { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma/client";
 import { lockRoomTypeInventory } from "@/lib/inventory/lock-room-type-inventory";
+import { UserFacingError } from "@/lib/http/user-facing-error";
 
 type ReserveRoomInventoryInput = {
   roomTypeId: string;
@@ -26,7 +27,7 @@ type TransactionClient = Prisma.TransactionClient;
 
 function parseDate(date: string, fieldName: string): Date {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    throw new Error(`${fieldName} must use YYYY-MM-DD format.`);
+    throw new UserFacingError(`${fieldName} must use YYYY-MM-DD format.`);
   }
 
   const parsedDate = new Date(`${date}T00:00:00.000Z`);
@@ -35,7 +36,7 @@ function parseDate(date: string, fieldName: string): Date {
     Number.isNaN(parsedDate.getTime()) ||
     parsedDate.toISOString().slice(0, 10) !== date
   ) {
-    throw new Error(`${fieldName} is invalid.`);
+    throw new UserFacingError(`${fieldName} is invalid.`);
   }
 
   return parsedDate;
@@ -79,7 +80,7 @@ export async function reserveRoomInventoryInTransaction(
   const checkOutDate = parseDate(checkOut, "Check-out date");
 
   if (checkInDate >= checkOutDate) {
-    throw new Error(
+    throw new UserFacingError(
       "Check-out date must be later than check-in date."
     );
   }
@@ -92,7 +93,7 @@ export async function reserveRoomInventoryInTransaction(
   });
 
   if (!roomType) {
-    throw new Error("Room type not found.");
+    throw new UserFacingError("Room type not found.");
   }
 
   const nights = getBookingNights(checkInDate, checkOutDate);
@@ -116,8 +117,9 @@ export async function reserveRoomInventoryInTransaction(
     `;
 
     if (result !== 1) {
-      throw new Error(
-        `Insufficient inventory for ${formatDate(night)}.`
+      throw new UserFacingError(
+        `The selected rooms are no longer available on ${formatDate(night)}. Please choose other dates or rooms.`,
+        409
       );
     }
 

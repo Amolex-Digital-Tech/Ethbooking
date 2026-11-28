@@ -3,6 +3,7 @@ import { requireAuth } from "@/lib/auth/require-auth";
 import { handleAuthError } from "@/lib/auth/handle-auth-error";
 import { AuthError } from "@/lib/auth/auth-error";
 import { prisma } from "@/lib/prisma/client";
+import { errorResponse, UserFacingError } from "@/lib/http/user-facing-error";
 
 export async function POST(request: Request) {
   try {
@@ -83,13 +84,13 @@ export async function POST(request: Request) {
             items: { select: { roomTypeId: true, ratePlanId: true, quantity: true } },
           },
         });
-        if (!booking) throw new Error("Your 15-minute room hold has expired. Return to the property and check availability again.");
+        if (!booking) throw new UserFacingError("Your 15-minute room hold has expired. Return to the property and check availability again.");
         if (
           booking.guestCount !== guests ||
           booking.checkInDate.toISOString().slice(0, 10) !== checkInDate ||
           booking.checkOutDate.toISOString().slice(0, 10) !== checkOutDate
         ) {
-          throw new Error("Your dates or guest count no longer match the held booking. Return to the property and start again.");
+          throw new UserFacingError("Your dates or guest count no longer match the held booking. Return to the property and start again.");
         }
         if (roomItems?.length) {
           const normalize = (items: { roomTypeId: string; ratePlanId: string; quantity: number }[]) =>
@@ -100,14 +101,14 @@ export async function POST(request: Request) {
             quantity: item.quantity,
           }));
           if (normalize(heldItems) !== normalize(roomItems)) {
-            throw new Error("Your selected rooms no longer match the active inventory hold. Return to the property and start again.");
+            throw new UserFacingError("Your selected rooms no longer match the active inventory hold. Return to the property and start again.");
           }
         }
         const paymentAttempt = await tx.paymentTransaction.findFirst({
           where: { bookingId, status: { in: ["INITIATED", "PENDING", "SUCCESS"] } },
           select: { id: true },
         });
-        if (paymentAttempt) throw new Error("Payment has already been started for this booking. Refresh your booking details before continuing.");
+        if (paymentAttempt) throw new UserFacingError("Payment has already been started for this booking. Refresh your booking details before continuing.", 409);
         await tx.booking.update({
           where: { id: bookingId },
           data: {
@@ -152,7 +153,6 @@ export async function POST(request: Request) {
     return Response.json({ success: true, data: result }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthError) return handleAuthError(error);
-    console.error("Booking creation failed:", error);
-    return Response.json({ success: false, error: error instanceof Error ? error.message : "Unable to create booking." }, { status: 400 });
+    return errorResponse("Booking creation failed", error);
   }
 }

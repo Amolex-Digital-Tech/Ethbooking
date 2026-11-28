@@ -5,6 +5,7 @@ import { BookingStatus, PaymentStatus } from "@/lib/generated/prisma/enums";
 import { prisma } from "@/lib/prisma/client";
 import { reserveRoomInventoryInTransaction } from "@/lib/availability/reserve-room-inventory";
 import { bookedCancellationTerms } from "@/lib/bookings/booked-cancellation-terms";
+import { UserFacingError } from "@/lib/http/user-facing-error";
 
 type BookingRoomSelection = {
   roomTypeId: string;
@@ -72,9 +73,9 @@ export const MAX_HOLD_MINUTES = 24 * 60;
 const PLATFORM_COMMISSION_RATE = new Prisma.Decimal("0.10");
 
 function parseDate(date: string, fieldName: string): Date {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`${fieldName} must use YYYY-MM-DD format.`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new UserFacingError(`${fieldName} must use YYYY-MM-DD format.`);
   const parsed = new Date(`${date}T00:00:00.000Z`);
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) throw new Error(`${fieldName} is invalid.`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) throw new UserFacingError(`${fieldName} is invalid.`);
   return parsed;
 }
 
@@ -103,26 +104,26 @@ export async function createBooking(input: CreateBookingInput): Promise<CreateBo
       : []
   )).map((item) => ({ ...item, roomTypeId: item.roomTypeId?.trim(), ratePlanId: item.ratePlanId?.trim() }));
 
-  if (!selections.length || selections.length > 20) throw new Error("Select between 1 and 20 room and rate-plan combinations.");
+  if (!selections.length || selections.length > 20) throw new UserFacingError("Select between 1 and 20 room and rate-plan combinations.");
   if (new Set(selections.map((item) => item.roomTypeId)).size !== selections.length) {
-    throw new Error("Choose only one rate plan for each room type. Combine quantities under that selection.");
+    throw new UserFacingError("Choose only one rate plan for each room type. Combine quantities under that selection.");
   }
   if (selections.some((item) => !item.roomTypeId || !item.ratePlanId || !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 30)) {
-    throw new Error("Every selected room must have a valid rate plan and quantity between 1 and 30.");
+    throw new UserFacingError("Every selected room must have a valid rate plan and quantity between 1 and 30.");
   }
-  if (selections.reduce((sum, item) => sum + item.quantity, 0) > 30) throw new Error("A booking can include up to 30 rooms.");
-  if (!Number.isInteger(guests) || guests < 1 || guests > 30) throw new Error("Guest count must be between 1 and 30.");
+  if (selections.reduce((sum, item) => sum + item.quantity, 0) > 30) throw new UserFacingError("A booking can include up to 30 rooms.");
+  if (!Number.isInteger(guests) || guests < 1 || guests > 30) throw new UserFacingError("Guest count must be between 1 and 30.");
   if (!Number.isInteger(adults) || adults < 1 || !Number.isInteger(children) || children < 0 || adults + children !== guests) {
-    throw new Error("Adult and child counts must match the total guest count.");
+    throw new UserFacingError("Adult and child counts must match the total guest count.");
   }
-  if (!customerFirstName.trim() || !customerEmail.trim()) throw new Error("Customer name and email are required.");
-  if (guestDetails.length !== guests || guestDetails.some((guest) => !guest.firstName.trim())) throw new Error("Enter a first name for every guest.");
+  if (!customerFirstName.trim() || !customerEmail.trim()) throw new UserFacingError("Customer name and email are required.");
+  if (guestDetails.length !== guests || guestDetails.some((guest) => !guest.firstName.trim())) throw new UserFacingError("Enter a first name for every guest.");
 
   const checkIn = parseDate(checkInDate, "Check-in date");
   const checkOut = parseDate(checkOutDate, "Check-out date");
-  if (checkIn >= checkOut) throw new Error("Check-out date must be later than check-in date.");
+  if (checkIn >= checkOut) throw new UserFacingError("Check-out date must be later than check-in date.");
   const todayInEthiopia = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Addis_Ababa" }).format(new Date());
-  if (formatDate(checkIn) < todayInEthiopia) throw new Error("Check-in date cannot be in the past.");
+  if (formatDate(checkIn) < todayInEthiopia) throw new UserFacingError("Check-in date cannot be in the past.");
   const holdMinutes = input.holdMinutes ?? DEFAULT_HOLD_MINUTES;
   if (!Number.isInteger(holdMinutes) || holdMinutes < 1 || holdMinutes > MAX_HOLD_MINUTES) {
     throw new Error(`Hold duration must be between 1 and ${MAX_HOLD_MINUTES} minutes.`);
@@ -157,9 +158,9 @@ export async function createBooking(input: CreateBookingInput): Promise<CreateBo
         where: { id: selection.roomTypeId },
         include: { property: { select: { id: true, name: true, status: true, checkInTime: true } } },
       });
-      if (!roomType || !roomType.isActive) throw new Error("One of the selected room types is no longer available.");
-      if (roomType.property.status !== "APPROVED") throw new Error("This property is not currently available for booking.");
-      if (propertyId && propertyId !== roomType.property.id) throw new Error("All rooms in one booking must belong to the same property.");
+      if (!roomType || !roomType.isActive) throw new UserFacingError("One of the selected room types is no longer available.");
+      if (roomType.property.status !== "APPROVED") throw new UserFacingError("This property is not currently available for booking.");
+      if (propertyId && propertyId !== roomType.property.id) throw new UserFacingError("All rooms in one booking must belong to the same property.");
       propertyId = roomType.property.id;
       propertyName = roomType.property.name;
 
@@ -167,9 +168,9 @@ export async function createBooking(input: CreateBookingInput): Promise<CreateBo
         where: { id: selection.ratePlanId },
         include: { ratePeriods: { where: { startDate: { lt: checkOut }, endDate: { gte: checkIn } }, orderBy: { startDate: "desc" } } },
       });
-      if (!ratePlan || !ratePlan.isActive || ratePlan.roomTypeId !== roomType.id) throw new Error("A selected rate plan is no longer available for its room.");
-      if (ratePlan.currency !== "ETB") throw new Error("Only ETB bookings are currently supported.");
-      if (bookingCurrency && bookingCurrency !== ratePlan.currency) throw new Error("All selected rates must use the same currency.");
+      if (!ratePlan || !ratePlan.isActive || ratePlan.roomTypeId !== roomType.id) throw new UserFacingError("A selected rate plan is no longer available for its room.");
+      if (ratePlan.currency !== "ETB") throw new UserFacingError("Only ETB bookings are currently supported.");
+      if (bookingCurrency && bookingCurrency !== ratePlan.currency) throw new UserFacingError("All selected rates must use the same currency.");
       bookingCurrency = ratePlan.currency;
 
       totalCapacity += roomType.maxGuests * selection.quantity;
@@ -195,9 +196,9 @@ export async function createBooking(input: CreateBookingInput): Promise<CreateBo
       });
     }
 
-    if (guests > totalCapacity) throw new Error(`The selected rooms accommodate up to ${totalCapacity} guests in total.`);
-    if (adults > adultCapacity) throw new Error(`The selected rooms accommodate up to ${adultCapacity} adults in total.`);
-    if (children > childCapacity) throw new Error(`The selected rooms accommodate up to ${childCapacity} children in total.`);
+    if (guests > totalCapacity) throw new UserFacingError(`The selected rooms accommodate up to ${totalCapacity} guests in total.`);
+    if (adults > adultCapacity) throw new UserFacingError(`The selected rooms accommodate up to ${adultCapacity} adults in total.`);
+    if (children > childCapacity) throw new UserFacingError(`The selected rooms accommodate up to ${childCapacity} children in total.`);
 
     const subtotal = pricedItems.reduce((sum, item) => sum.plus(item.subtotal), new Prisma.Decimal(0));
     const discountAmount = new Prisma.Decimal(0);
@@ -212,7 +213,7 @@ export async function createBooking(input: CreateBookingInput): Promise<CreateBo
       const reserved = await reserveRoomInventoryInTransaction(transaction, {
         roomTypeId: item.roomType.id, checkIn: checkInDate, checkOut: checkOutDate, units: item.quantity,
       });
-      if (!reserved.success) throw new Error(`Unable to reserve ${item.roomType.name} inventory.`);
+      if (!reserved.success) throw new UserFacingError(`Unable to reserve ${item.roomType.name} inventory.`);
     }
 
     let bookingReference = generateBookingReference();

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma/client";
 import { createRoomInventory } from "@/lib/inventory/create-room-inventory";
 import { lockRoomTypeInventory } from "@/lib/inventory/lock-room-type-inventory";
+import { UserFacingError } from "@/lib/http/user-facing-error";
 
 type CheckRoomAvailabilityInput = {
   roomTypeId: string;
@@ -26,7 +27,7 @@ type CheckRoomAvailabilityResult = {
 
 function parseDate(date: string, fieldName: string): Date {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    throw new Error(`${fieldName} must use YYYY-MM-DD format.`);
+    throw new UserFacingError(`${fieldName} must use YYYY-MM-DD format.`);
   }
 
   const parsed = new Date(`${date}T00:00:00.000Z`);
@@ -35,7 +36,7 @@ function parseDate(date: string, fieldName: string): Date {
     Number.isNaN(parsed.getTime()) ||
     parsed.toISOString().slice(0, 10) !== date
   ) {
-    throw new Error(`${fieldName} is invalid.`);
+    throw new UserFacingError(`${fieldName} is invalid.`);
   }
 
   return parsed;
@@ -77,7 +78,7 @@ export async function checkRoomAvailability(
   const checkOutDate = parseDate(checkOut, "Check-out date");
 
   if (checkInDate >= checkOutDate) {
-    throw new Error(
+    throw new UserFacingError(
       "Check-out date must be later than check-in date."
     );
   }
@@ -95,11 +96,11 @@ export async function checkRoomAvailability(
     });
 
     if (!roomType) {
-      throw new Error("Room type not found.");
+      throw new UserFacingError("Room type not found.");
     }
 
     if (!roomType.isActive) {
-      throw new Error("This room type is not available.");
+      throw new UserFacingError("This room type is not available.");
     }
 
     await createRoomInventory(
@@ -138,8 +139,8 @@ export async function checkRoomAvailability(
 
       // Never assume a missing record has full availability.
       if (!item) {
-        throw new Error(
-          `Availability could not be established for ${date}.`
+        throw new UserFacingError(
+          `These rooms are not open for booking on ${date} yet. Please choose other dates.`
         );
       }
 
