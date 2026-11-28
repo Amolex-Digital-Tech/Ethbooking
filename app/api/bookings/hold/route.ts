@@ -2,6 +2,7 @@ import { createBooking } from "@/lib/bookings/create-booking";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { AuthError } from "@/lib/auth/auth-error";
 import { handleAuthError } from "@/lib/auth/handle-auth-error";
+import { errorResponse } from "@/lib/http/user-facing-error";
 
 export async function POST(request: Request) {
   try {
@@ -56,7 +57,6 @@ export async function POST(request: Request) {
     return Response.json({ success: true, data: booking }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthError) return handleAuthError(error);
-    console.error("Booking hold creation failed:", error);
-    return Response.json({ success: false, error: error instanceof Error ? error.message : "Unable to reserve the selected rooms." }, { status: 400 });
+    return errorResponse("Booking hold creation failed", error);
   }
 }

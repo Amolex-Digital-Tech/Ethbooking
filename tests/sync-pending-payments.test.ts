@@ -14,7 +14,7 @@ vi.mock("@/lib/email/send-booking-payment-confirmation", () => ({
   sendBookingPaymentConfirmationOnce: mocks.sendBookingPaymentConfirmationOnce,
 }));
 
-import { syncPendingChapaPayments } from "@/lib/payments/chapa/sync-pending-payments";
+import { syncPendingChapaPayments, syncPendingChapaPaymentsDetailed } from "@/lib/payments/chapa/sync-pending-payments";
 
 const BOOKING_ID = "booking-1";
 
@@ -91,5 +91,20 @@ describe("syncPendingChapaPayments", () => {
 
     expect(mocks.completeChapaPayment).toHaveBeenCalledTimes(2);
     expect(mocks.sendBookingPaymentConfirmationOnce).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports the attempts Chapa could not be asked about", async () => {
+    mocks.prisma.paymentTransaction.findMany.mockResolvedValue([
+      { transactionReference: "EB-TX-2" },
+      { transactionReference: "EB-TX-1" },
+    ]);
+    mocks.completeChapaPayment
+      .mockRejectedValueOnce(new Error("Chapa is unavailable"))
+      .mockResolvedValueOnce(stillPending);
+
+    await expect(syncPendingChapaPaymentsDetailed(BOOKING_ID)).resolves.toEqual({
+      confirmed: false,
+      unverifiedReferences: ["EB-TX-2"],
+    });
   });
 });

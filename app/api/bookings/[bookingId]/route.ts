@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma/client";
 import { releaseRoomInventory } from "@/lib/availability/release-room-inventory";
 import { expireBooking } from "@/lib/bookings/expire-booking";
 import { syncPendingChapaPayments } from "@/lib/payments/chapa/sync-pending-payments";
+import { errorResponse } from "@/lib/http/user-facing-error";
 import {
   calculateCancellationAmounts,
   calculateSharesAfterRefund,
@@ -433,17 +434,6 @@ export async function PATCH(
       );
     }
 
-    console.error("Booking cancellation failed:", error);
-
-    return Response.json(
-      {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Unable to cancel booking.",
-      },
-      { status: 500 }
-    );
+    return errorResponse("Booking cancellation failed", error);
   }
 }

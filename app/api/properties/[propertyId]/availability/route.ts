@@ -3,6 +3,7 @@ import { checkRoomAvailability } from "@/lib/availability/check-room-availabilit
 import { requireAuth } from "@/lib/auth/require-auth";
 import { AuthError } from "@/lib/auth/auth-error";
 import { handleAuthError } from "@/lib/auth/handle-auth-error";
+import { errorResponse } from "@/lib/http/user-facing-error";
 
 type RouteContext = { params: Promise<{ propertyId: string }> };
 type Selection = { roomTypeId: string; ratePlanId?: string; units: number };
@@ -85,7 +86,6 @@ export async function GET(request: Request, context: RouteContext) {
     });
   } catch (error) {
     if (error instanceof AuthError) return handleAuthError(error);
-    console.error("Failed to check customer room availability:", error);
-    return Response.json({ success: false, error: error instanceof Error ? error.message : "Unable to check room availability." }, { status: 400 });
+    return errorResponse("Failed to check customer room availability", error);
   }
 }

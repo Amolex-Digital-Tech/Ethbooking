@@ -1,9 +1,14 @@
 import { prisma } from "@/lib/prisma/client";
-import { chapaRequest, ChapaApiError } from "@/lib/payments/chapa/client";
-import { syncPendingChapaPayments } from "@/lib/payments/chapa/sync-pending-payments";
+import { chapaRequest, ChapaApiError, describeChapaError } from "@/lib/payments/chapa/client";
+import { syncPendingChapaPaymentsDetailed } from "@/lib/payments/chapa/sync-pending-payments";
+import { UserFacingError } from "@/lib/http/user-facing-error";
 
 const ALREADY_PAID_MESSAGE =
   "This booking has already been paid. Refresh the page to see your confirmed booking.";
+
+// Chapa checkout sessions expire, so an older link only shows the customer
+// "Session expired". Older attempts are replaced with a fresh checkout.
+export const CHECKOUT_REUSE_WINDOW_MS = 30 * 60 * 1000;
 
 type ChapaInitializeResponse = {
   message: string;
@@ -20,12 +25,21 @@ function generateTransactionReference() {
   return `EB-${timestamp}-${random}`;
 }
 
+// What to record when initialization fails: Chapa's own reason when Chapa
+// rejected the request, otherwise the error message.
+function initializationFailureReason(error: unknown) {
+  if (error instanceof ChapaApiError) {
+    return `Chapa rejected the payment request (HTTP ${error.statusCode}): ${describeChapaError(error.responseData)}`;
+  }
+  return error instanceof Error ? error.message : "Payment initialization failed.";
+}
+
 export async function initializeChapaPayment(
   bookingId: string,
   customerProfileId: string | null
 ) {
   if (!bookingId) {
-    throw new Error("Booking ID is required.");
+    throw new UserFacingError("Booking ID is required.");
   }
 
   const booking = await prisma.booking.findFirst({
@@ -50,29 +64,31 @@ export async function initializeChapaPayment(
   });
 
   if (!booking) {
-    throw new Error("Booking not found.");
+    throw new UserFacingError("Booking not found.", 404);
   }
 
-  // Before reusing a checkout, ask Chapa whether an earlier attempt was
-  // already paid: its checkout link would only show "already paid".
-  if (
-    booking.status === "PAYMENT_PENDING" &&
-    booking.paymentStatus === "PENDING" &&
-    (await syncPendingChapaPayments(booking.id))
-  ) {
-    throw new Error(ALREADY_PAID_MESSAGE);
+  // Ask Chapa about every unresolved attempt first: one may already be paid,
+  // and its checkout link would then only show "already paid".
+  let unverifiedReferences = new Set<string>();
+  if (booking.status === "PAYMENT_PENDING" && booking.paymentStatus === "PENDING") {
+    const sync = await syncPendingChapaPaymentsDetailed(booking.id);
+    if (sync.confirmed) {
+      throw new UserFacingError(ALREADY_PAID_MESSAGE, 409);
+    }
+    unverifiedReferences = new Set(sync.unverifiedReferences);
   }
 
   if (booking.status === "CONFIRMED" && booking.paymentStatus === "PAID") {
-    throw new Error(ALREADY_PAID_MESSAGE);
+    throw new UserFacingError(ALREADY_PAID_MESSAGE, 409);
   }
 
   if (
     booking.status !== "PAYMENT_PENDING" ||
     booking.paymentStatus !== "PENDING"
   ) {
-    throw new Error(
-      "This booking is not available for payment."
+    throw new UserFacingError(
+      "This booking is not available for payment.",
+      409
     );
   }
 
@@ -80,47 +96,79 @@ export async function initializeChapaPayment(
     !booking.expiresAt ||
     booking.expiresAt <= new Date()
   ) {
-    throw new Error(
-      "This booking has expired and cannot be paid."
+    throw new UserFacingError(
+      "This booking has expired and cannot be paid.",
+      409
     );
   }
 
   if (booking.currency !== "ETB") {
-    throw new Error(
+    throw new UserFacingError(
       "Only ETB payments are currently supported."
     );
   }
 
   if (booking.totalAmount.lessThanOrEqualTo(0)) {
-    throw new Error("Booking amount must be greater than zero.");
+    throw new UserFacingError("Booking amount must be greater than zero.");
   }
 
-  // Reuse an existing checkout when one is already pending.
-  const existingTransaction =
-    await prisma.paymentTransaction.findFirst({
-      where: {
-        bookingId: booking.id,
-        provider: "CHAPA",
-        status: "PENDING",
-        checkoutUrl: {
-          not: null,
-        },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+  // Reuse a recent checkout (Chapa did not report it paid above). Older
+  // checkouts are cancelled and replaced; a late payment on a cancelled
+  // attempt is still recorded by completeChapaPayment and sent for refund.
+  const pendingCheckouts = await prisma.paymentTransaction.findMany({
+    where: {
+      bookingId: booking.id,
+      provider: "CHAPA",
+      status: "PENDING",
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    select: {
+      id: true,
+      transactionReference: true,
+      checkoutUrl: true,
+      createdAt: true,
+    },
+  });
 
-  if (existingTransaction?.checkoutUrl) {
+  const reuseCutoff = new Date(Date.now() - CHECKOUT_REUSE_WINDOW_MS);
+  const reusableCheckout = pendingCheckouts.find(
+    (checkout) => checkout.checkoutUrl && checkout.createdAt > reuseCutoff
+  );
+
+  if (reusableCheckout?.checkoutUrl) {
     return {
       success: true,
       bookingId: booking.id,
       bookingReference: booking.bookingReference,
-      transactionId: existingTransaction.id,
-      transactionReference:
-        existingTransaction.transactionReference,
-      checkoutUrl: existingTransaction.checkoutUrl,
+      transactionId: reusableCheckout.id,
+      transactionReference: reusableCheckout.transactionReference,
+      checkoutUrl: reusableCheckout.checkoutUrl,
     };
+  }
+
+  // Never replace a checkout whose real status Chapa could not tell us: the
+  // customer may have paid it, and a new checkout could charge them twice.
+  if (pendingCheckouts.some((checkout) => unverifiedReferences.has(checkout.transactionReference))) {
+    throw new UserFacingError(
+      "We couldn't confirm the status of your previous payment with Chapa. Please try again in a minute.",
+      503
+    );
+  }
+
+  if (pendingCheckouts.length) {
+    await prisma.paymentTransaction.updateMany({
+      where: {
+        id: { in: pendingCheckouts.map((checkout) => checkout.id) },
+        status: "PENDING",
+      },
+      data: {
+        status: "CANCELLED",
+        failureReason:
+          "Checkout link was older than 30 minutes and unpaid; replaced by a new checkout.",
+      },
+    });
   }
 
   const unresolvedTransaction = await prisma.paymentTransaction.findFirst({
@@ -132,7 +180,10 @@ export async function initializeChapaPayment(
     select: { id: true },
   });
   if (unresolvedTransaction) {
-    throw new Error("A previous Chapa payment attempt is still being verified. Please wait before retrying.");
+    throw new UserFacingError(
+      "A previous Chapa payment attempt is still being verified. Please wait before retrying.",
+      409
+    );
   }
 
   const transactionReference =
@@ -190,9 +241,11 @@ if (!baseUrl) {
       response.status !== "success" ||
       !response.data?.checkout_url
     ) {
-      throw new Error(
-        response.message ||
-          "Chapa payment initialization failed."
+      // Chapa answered (HTTP 200) but did not create a checkout.
+      throw new ChapaApiError(
+        response.message || "Chapa payment initialization failed.",
+        200,
+        response
       );
     }
 
@@ -218,8 +271,9 @@ if (!baseUrl) {
           });
 
         if (!currentBooking) {
-          throw new Error(
-            "Booking expired or is no longer available for payment."
+          throw new UserFacingError(
+            "Booking expired or is no longer available for payment.",
+            409
           );
         }
 
@@ -265,7 +319,7 @@ if (!baseUrl) {
       },
       data: {
         status: "FAILED",
-        failureReason: error instanceof Error ? error.message : "Payment initialization failed.",
+        failureReason: initializationFailureReason(error),
       },
     });
   }

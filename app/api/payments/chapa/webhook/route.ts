@@ -119,7 +119,8 @@ if (!signatureIsValid) {
       await sendBookingPaymentFailureOnce(result.bookingId, String(result.status));
     }
 
-    return Response.json(result, {
+    // Chapa only needs to know the webhook was processed.
+    return Response.json({ success: true }, {
       status: 200,
     });
   } catch (error) {
@@ -128,13 +129,11 @@ if (!signatureIsValid) {
       error
     );
 
+    // Details are in the log above; Chapa only needs to know to retry.
     return Response.json(
       {
         success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Unable to process Chapa webhook.",
+        error: "Unable to process Chapa webhook.",
       },
       { status: 500 }
     );

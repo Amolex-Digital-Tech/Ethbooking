@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "main": ".open-next/worker.js",
+  // Wraps .open-next/worker.js to add the Cron Trigger handler below.
+  "main": "custom-worker.ts",
   "name": "ethiopianbooking",
   "compatibility_date": "2026-11-17",
   // Keep variables set in the Cloudflare dashboard when deploying from Git.
@@ -22,6 +23,12 @@
   ],
   "images": {
     "binding": "IMAGES"
+  },
+  // Expire unpaid bookings and release their rooms every 5 minutes
+  // (handled by `scheduled` in custom-worker.ts). The GitHub Actions
+  // workflow .github/workflows/expire-bookings.yml remains as a fallback.
+  "triggers": {
+    "crons": ["*/5 * * * *"]
   },
   "observability": {
     "enabled": true

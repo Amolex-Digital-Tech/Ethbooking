@@ -5,6 +5,7 @@ import { handleAuthError } from "@/lib/auth/handle-auth-error";
 import { AuthError } from "@/lib/auth/auth-error";
 import { prisma } from "@/lib/prisma/client";
 import { sendResendEmail } from "@/lib/email/resend";
+import { errorResponse, toPublicError } from "@/lib/http/user-facing-error";
 
 // Support bookings send the guest a payment link by email, so the guest
 // needs longer than the 15-minute online checkout hold to pay.
@@ -117,7 +118,7 @@ export async function POST(request: Request) {
     try {
       payment = await initializeChapaPayment(result.bookingId, null);
     } catch (error) {
-      paymentError = error instanceof Error ? error.message : "Unable to initialize Chapa payment.";
+      paymentError = toPublicError(error).message;
       console.error("Support booking Chapa initialization failed:", error);
     }
 
@@ -150,10 +151,6 @@ export async function POST(request: Request) {
     }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthError) return handleAuthError(error);
-    console.error("Support booking creation failed:", error);
-    return Response.json(
-      { success: false, error: error instanceof Error ? error.message : "Unable to create the guest booking." },
-      { status: 400 }
-    );
+    return errorResponse("Support booking creation failed", error);
   }
 }

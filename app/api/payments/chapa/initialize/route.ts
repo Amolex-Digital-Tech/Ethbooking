@@ -2,6 +2,7 @@ import { initializeChapaPayment } from "@/lib/payments/chapa/initialize-payment"
 import { requireAuth } from "@/lib/auth/require-auth";
 import { handleAuthError } from "@/lib/auth/handle-auth-error";
 import { AuthError } from "@/lib/auth/auth-error";
+import { errorResponse } from "@/lib/http/user-facing-error";
 
 export async function POST(request: Request) {
   try {
@@ -38,20 +39,6 @@ export async function POST(request: Request) {
       return handleAuthError(error);
     }
 
-    console.error(
-      "Chapa payment initialization error:",
-      error
-    );
-
-    return Response.json(
-      {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Unable to initialize payment.",
-      },
-      { status: 500 }
-    );
+    return errorResponse("Chapa payment initialization error", error);
   }
 }
